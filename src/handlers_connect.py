@@ -42,3 +42,25 @@ async def connect_site(ctx, url: str = "", username: str = "", app_password: str
     await storage.save_site_record(ctx, record)
     await storage.set_credential(ctx, site_id, app_password)
     return {"status": "success", "site_id": site_id, "name": name}
+
+
+# forget_site IS a @chat.function with action_type="destructive": the web-kernel shows the
+# KAV confirmation card automatically. It takes only site_id — no credential in args.
+@chat.function(
+    "forget_site",
+    description="Disconnect a WordPress site and delete its stored credential.",
+    action_type="destructive",
+    data_model=Site,
+    effects=["wp.disconnect"],
+)
+async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
+    """Remove the site record and its stored Application Password after user confirmation."""
+    record = await storage.get_site_record(ctx, params.site_id)
+    if not record:
+        return ActionResult.error("No connected site with that id.", retryable=False)
+    await storage.delete_site_record(ctx, params.site_id)
+    await storage.delete_credential(ctx, params.site_id)
+    site = Site(id=params.site_id, title=record.get("name", params.site_id), kind="wp_site",
+                url=record.get("url", ""), username=record.get("username", ""), status="disconnected")
+    return ActionResult.success(
+        site, summary=f"Disconnected {record.get('name', params.site_id)}", refresh_panels=["dashboard"])
