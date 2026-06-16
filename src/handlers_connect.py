@@ -36,7 +36,8 @@ async def connect_site(ctx, url: str = "", username: str = "", app_password: str
     if r.status_code != 200:
         return {"status": "error", "error": wp_error_message(r.status_code)}
 
-    name = (r.json() or {}).get("name") or base_url
+    body = r.body if isinstance(r.body, dict) else {}
+    name = body.get("name") or base_url
     record = {"id": site_id, "name": name, "url": base_url, "username": username,
               "status": "connected", "last_checked": _now()}
     await storage.save_site_record(ctx, record)
