@@ -25,3 +25,7 @@ class _PingParams(BaseModel):
 async def ping(ctx, params: _PingParams) -> ActionResult:
     """Return a static ok result to confirm the extension loads."""
     return ActionResult.success(_PingResult(id="ping", title="ok", kind="ping"), summary="ok")
+
+
+# Handler modules register their decorators on import (after ext/chat exist).
+import handlers_connect  # noqa: E402,F401
