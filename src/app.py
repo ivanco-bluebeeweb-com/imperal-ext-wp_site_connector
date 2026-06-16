@@ -15,3 +15,4 @@ chat = ChatExtension(ext, tool_name="wp-site-connector", description="Browse con
 import handlers_connect  # noqa: E402,F401
 import handlers_read  # noqa: E402,F401
 import skeleton  # noqa: E402,F401
+import panels  # noqa: E402,F401
