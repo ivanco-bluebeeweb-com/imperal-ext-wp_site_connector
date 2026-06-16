@@ -39,3 +39,11 @@ def wp_error_message(status_code: int) -> str:
 async def wp_get(ctx, base_url, path, *, username, app_password, params=None):
     headers = basic_auth_header(username, app_password)
     return await ctx.http.get(f"{base_url}{path}", headers=headers, params=params)
+
+
+def wp_title(item: dict) -> str:
+    """WordPress entities carry title as {"rendered": "..."}; fall back to id, then empty string."""
+    t = item.get("title")
+    if isinstance(t, dict):
+        return t.get("rendered") or str(item.get("id", "")) or ""
+    return t or str(item.get("id", "")) or ""

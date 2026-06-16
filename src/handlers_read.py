@@ -2,7 +2,7 @@ from imperal_sdk import ActionResult, sdl
 from app import chat
 from models import (_NoParams, Site, ListContentParams, ListMediaParams,
                     Post, Page, MediaItem, SiteIdParams, SiteHealth)
-from wp_client import wp_get, wp_error_message
+from wp_client import wp_get, wp_error_message, wp_title
 import storage
 
 
@@ -28,11 +28,6 @@ async def _authed(ctx, site_id):
     if not pw:
         return None, "Stored credential is missing — reconnect the site."
     return (record["url"], record["username"], pw), None
-
-
-def _title(item):
-    t = item.get("title")
-    return t.get("rendered") if isinstance(t, dict) else (t or str(item.get("id")))
 
 
 async def _fetch(ctx, site_id, path, params):
@@ -63,7 +58,7 @@ async def list_posts(ctx, params: ListContentParams) -> ActionResult:
     data, err = await _fetch(ctx, params.site_id, "/wp-json/wp/v2/posts", q)
     if err:
         return err
-    items = [Post(id=str(p["id"]), title=_title(p), kind="wp_post",
+    items = [Post(id=str(p["id"]), title=wp_title(p), kind="wp_post",
                   status=p.get("status", ""), link=p.get("link", ""), date=p.get("date")) for p in data]
     return ActionResult.success(sdl.EntityList[Post](items=items), summary=f"{len(items)} post(s)")
 
@@ -78,7 +73,7 @@ async def list_pages(ctx, params: ListContentParams) -> ActionResult:
     data, err = await _fetch(ctx, params.site_id, "/wp-json/wp/v2/pages", q)
     if err:
         return err
-    items = [Page(id=str(p["id"]), title=_title(p), kind="wp_page",
+    items = [Page(id=str(p["id"]), title=wp_title(p), kind="wp_page",
                   status=p.get("status", ""), link=p.get("link", ""), date=p.get("date")) for p in data]
     return ActionResult.success(sdl.EntityList[Page](items=items), summary=f"{len(items)} page(s)")
 
@@ -90,7 +85,7 @@ async def list_media(ctx, params: ListMediaParams) -> ActionResult:
     data, err = await _fetch(ctx, params.site_id, "/wp-json/wp/v2/media", {"per_page": params.limit})
     if err:
         return err
-    items = [MediaItem(id=str(m["id"]), title=_title(m), kind="wp_media",
+    items = [MediaItem(id=str(m["id"]), title=wp_title(m), kind="wp_media",
                        url=m.get("source_url", ""), mime_type=m.get("mime_type", "")) for m in data]
     return ActionResult.success(sdl.EntityList[MediaItem](items=items), summary=f"{len(items)} media item(s)")
 

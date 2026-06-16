@@ -53,6 +53,7 @@ async def connect_site(ctx, url: str = "", username: str = "", app_password: str
     action_type="destructive",
     data_model=Site,
     effects=["wp.disconnect"],
+    event="wp-site-connector.forget_site",
 )
 async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
     """Remove the site record and its stored Application Password after user confirmation."""

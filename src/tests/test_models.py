@@ -1,14 +1,16 @@
-from models import ConnectSiteParams, ListContentParams, Site, Post, MediaItem, SiteHealth
-
-
-def test_connect_params_require_fields():
-    p = ConnectSiteParams(url="https://x.com", username="admin", app_password="abcd efgh")
-    assert p.url == "https://x.com" and p.username == "admin"
+import pytest
+from pydantic import ValidationError
+from models import ListContentParams, Site, Post, MediaItem, SiteHealth
 
 
 def test_list_content_defaults():
     p = ListContentParams(site_id="x-com")
     assert p.limit == 20 and p.search is None
+
+
+def test_list_content_limit_bounds_enforced():
+    with pytest.raises(ValidationError):
+        ListContentParams(site_id="x-com", limit=500)
 
 
 def test_site_entity_uses_base_and_custom_fields():

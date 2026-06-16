@@ -22,11 +22,15 @@ async def test_detail_renders_site_content():
     ctx.secrets = MockSecretStore({})
     await storage.save_site_record(ctx, {"id": "x-com", "name": "X", "url": "https://x.com", "username": "admin", "status": "connected"})
     await storage.set_credential(ctx, "x-com", "pw")
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/users/me", {"name": "Admin"}, 200)
     ctx.http.mock_get("https://x.com/wp-json/wp/v2/posts", [{"id": 1, "title": {"rendered": "Hello"}, "status": "publish"}], 200)
     ctx.http.mock_get("https://x.com/wp-json/wp/v2/pages", [], 200)
     ctx.http.mock_get("https://x.com/wp-json/wp/v2/media", [], 200)
     node = await panels.detail(ctx, site_id="x-com")
-    assert "Hello" in str(node)
+    s = str(node)
+    assert "Hello" in s                      # content tab rendered
+    assert "Health (read-only)" in s         # health card present
+    assert "Posts: 1" in s                   # health counts from len(body)
 
 
 async def test_connect_form_has_password_field():
