@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 
-from app import ext, chat
+from app import chat
 from imperal_sdk import ActionResult
-from models import SiteIdParams, Site
+from models import ConnectSiteParams, SiteIdParams, Site
 from wp_client import normalize_base_url, site_id_from_url, wp_get, wp_error_message
 import storage
 
@@ -11,38 +11,42 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# connect_site is an @ext.tool, NOT a @chat.function: the intent classifier cannot
-# select it, so the Application Password (a form field) never enters LLM context.
-# The connection panel form dispatches to it by name.
-@ext.tool(
+@chat.function(
     "connect_site",
-    description="Validate and store a WordPress site connection (panel connection-form action; not LLM-visible).",
+    description="Connect a WordPress site by URL, username, and Application Password. Creates under Users → Profile → Application Passwords in WordPress admin.",
+    action_type="write",
+    data_model=Site,
+    effects=["wp.connect"],
+    event="wp-site-connector.connect_site",
 )
-async def connect_site(ctx, url: str = "", username: str = "", app_password: str = "") -> dict:
+async def connect_site(ctx, params: ConnectSiteParams) -> ActionResult:
     """Validate WP credentials via /users/me, then persist the site record and its Application Password."""
     try:
-        base_url = normalize_base_url(url)
+        base_url = normalize_base_url(params.url)
     except ValueError:
-        return {"status": "error", "error": "Site URL must start with https://"}
+        return ActionResult.error("Site URL must start with https://", retryable=False)
 
     site_id = site_id_from_url(base_url)
     try:
         r = await wp_get(ctx, base_url, "/wp-json/wp/v2/users/me",
-                         username=username, app_password=app_password)
+                         username=params.username, app_password=params.app_password)
     except Exception as e:
         await ctx.log(f"connect_site http error: {e}", level="error")
-        return {"status": "error", "error": "Could not reach the site — check the URL and try again."}
+        return ActionResult.error("Could not reach the site — check the URL and try again.", retryable=True)
 
     if r.status_code != 200:
-        return {"status": "error", "error": wp_error_message(r.status_code)}
+        return ActionResult.error(wp_error_message(r.status_code),
+                                  retryable=r.status_code >= 500 or r.status_code == 429)
 
     body = r.body if isinstance(r.body, dict) else {}
     name = body.get("name") or base_url
-    record = {"id": site_id, "name": name, "url": base_url, "username": username,
+    record = {"id": site_id, "name": name, "url": base_url, "username": params.username,
               "status": "connected", "last_checked": _now()}
     await storage.save_site_record(ctx, record)
-    await storage.set_credential(ctx, site_id, app_password)
-    return {"status": "success", "site_id": site_id, "name": name}
+    await storage.set_credential(ctx, site_id, params.app_password)
+    site = Site(id=site_id, title=name, kind="wp_site", url=base_url,
+                username=params.username, status="connected")
+    return ActionResult.success(site, summary=f"Connected {name}", refresh_panels=["dashboard"])
 
 
 # forget_site IS a @chat.function with action_type="destructive": the web-kernel shows the

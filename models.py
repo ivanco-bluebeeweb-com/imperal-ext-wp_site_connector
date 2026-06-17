@@ -4,6 +4,12 @@ from imperal_sdk import sdl
 VNEXT = "requires companion plugin (vNext)"
 
 
+class ConnectSiteParams(BaseModel):
+    url: str = Field(description="Full https:// URL of the WordPress site, e.g. https://example.com")
+    username: str = Field(description="WordPress username that created the Application Password")
+    app_password: str = Field(description="WordPress Application Password (from Users → Profile → Application Passwords)")
+
+
 class SiteIdParams(BaseModel):
     site_id: str = Field(description="Site id from a previous list_sites call — never invent it")
 

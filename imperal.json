@@ -11,29 +11,147 @@
   "capabilities": [],
   "tools": [
     {
-      "name": "connect_site",
-      "description": "Validate and store a WordPress site connection (panel connection-form action; not LLM-visible).",
-      "scopes": [],
-      "parameters": {
-        "url": {
-          "type": "string",
-          "required": false
-        },
-        "username": {
-          "type": "string",
-          "required": false
-        },
-        "app_password": {
-          "type": "string",
-          "required": false
-        }
-      }
-    },
-    {
       "name": "skeleton_refresh_sites_overview",
       "description": "How many WordPress sites are connected.",
       "scopes": [],
       "parameters": {}
+    },
+    {
+      "name": "connect_site",
+      "description": "Connect a WordPress site by URL, username, and Application Password. Creates under Users → Profile → Application Passwords in WordPress admin.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [
+        "wp.connect"
+      ],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "url": {
+            "description": "Full https:// URL of the WordPress site, e.g. https://example.com",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "WordPress username that created the Application Password",
+            "title": "Username",
+            "type": "string"
+          },
+          "app_password": {
+            "description": "WordPress Application Password (from Users → Profile → Application Passwords)",
+            "title": "App Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "username",
+          "app_password"
+        ],
+        "title": "ConnectSiteParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "username": {
+            "default": "",
+            "title": "Username",
+            "type": "string"
+          },
+          "last_checked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Checked"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "Site",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "wp-site-connector.connect_site",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "wp-site-connector"
     },
     {
       "name": "forget_site",
