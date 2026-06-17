@@ -119,7 +119,7 @@ async def connect_form(ctx, **kwargs):
     """Center overlay: connection form. Submits the Application Password to the connect_site tool."""
     return ui.Form(action="connect_site", submit_label="Connect", children=[
         _field("Site URL", "The site's full address, e.g. https://example.com",
-               ui.Input(param_name="url", type="url", placeholder="https://example.com")),
+               ui.Input(param_name="url", placeholder="https://example.com")),
         _field("Username", "The WordPress username that created the Application Password",
                ui.Input(param_name="username", placeholder="admin")),
         _field("Application Password", "Create this under Users → Profile → Application Passwords in WordPress",
