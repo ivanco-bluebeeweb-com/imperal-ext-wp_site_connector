@@ -7,33 +7,77 @@ from models import VNEXT
 import storage
 
 
-@ext.panel("dashboard", slot="left", title="WordPress Sites")
-async def dashboard(ctx, **kwargs):
-    """Left panel: connected sites with status badges and a Connect button."""
+def _site_card(record):
+    site_id = record.get("id", "")
+    name = record.get("name", site_id)
+    url = record.get("url", "")
+    status = record.get("status", "connected")
+    is_ok = status == "connected"
+    return ui.Card(
+        title=name,
+        subtitle=url,
+        content=ui.Badge("Connected" if is_ok else "Error",
+                         color="green" if is_ok else "red"),
+        footer=ui.Button("View", variant="secondary",
+                         on_click=ui.Call("__panel__detail", site_id=site_id)),
+    )
+
+
+@ext.panel("overview", slot="center", title="WP Sites")
+async def overview(ctx, search="", status_filter="", **kwargs):
+    """Single-panel monitoring overview: searchable, filterable 2-column grid of site cards."""
     rows = await storage.list_site_records(ctx)
-    items = [
-        ui.ListItem(
-            id=r["id"],
-            title=r.get("name", r["id"]),
-            subtitle=r.get("url", ""),
-            badge=ui.Badge(r.get("status", "connected"),
-                           color="green" if r.get("status") == "connected" else "red"),
-            on_click=ui.Call("__panel__detail", site_id=r["id"]),
-        )
-        for r in rows
+    total = len(rows)
+
+    filtered = [
+        r for r in rows
+        if (not search or search.lower() in r.get("name", "").lower())
+        and (not status_filter or r.get("status", "") == status_filter)
     ]
-    body = ui.List(items=items) if items else ui.Empty(message="No sites connected yet.")
-    root = ui.Stack(children=[
-        ui.Button("+ Connect site", variant="primary", full_width=True,
+
+    # Header
+    header = ui.Stack(direction="h", justify="between", children=[
+        ui.Text(f"{total} site{'s' if total != 1 else ''} connected"),
+        ui.Button("+ Connect New Site", variant="primary",
                   on_click=ui.Call("__panel__connect_form")),
-        body,
     ])
-    # Load center panel on mount so center_overlay has a slot to open on top of.
-    if rows:
-        root.props["auto_action"] = ui.Call("__panel__detail", site_id=rows[0]["id"])
+
+    # Filter bar
+    def _filter_btn(label, value):
+        active = (value == "" and not status_filter) or (value and status_filter == value)
+        return ui.Button(
+            label,
+            variant="primary" if active else "secondary",
+            on_click=ui.Call("__panel__overview", search=search, status_filter=value),
+        )
+
+    filter_bar = ui.Stack(direction="h", gap=2, children=[
+        ui.Input(
+            placeholder="Search sites… (Enter to filter)",
+            param_name="search",
+            value=search,
+            on_submit=ui.Call("__panel__overview", status_filter=status_filter),
+        ),
+        ui.Stack(direction="h", gap=1, children=[
+            _filter_btn("All", ""),
+            _filter_btn("Connected", "connected"),
+            _filter_btn("Error", "error"),
+        ]),
+    ])
+
+    # Grid
+    if not rows:
+        grid = ui.Empty(message="No sites connected yet. Click + Connect New Site to get started.")
+    elif not filtered:
+        grid = ui.Empty(message="No sites match your filter.")
     else:
-        root.props["auto_action"] = ui.Call("__panel__detail")
-    return root
+        pairs = [filtered[i:i + 2] for i in range(0, len(filtered), 2)]
+        grid = ui.Stack(children=[
+            ui.Stack(direction="h", gap=3, children=[_site_card(r) for r in pair])
+            for pair in pairs
+        ])
+
+    return ui.Stack(gap=4, children=[header, filter_bar, grid])
 
 
 def _items_or_none(r):
@@ -111,7 +155,10 @@ async def detail(ctx, site_id=None, **kwargs):
 
     tabs = [_content_tab("Posts", posts), _content_tab("Pages", pages), _content_tab("Media", media)]
 
+    back_btn = ui.Button("← All sites", variant="secondary",
+                         on_click=ui.Call("__panel__overview"))
     return ui.Stack(children=[
+        back_btn,
         ui.Section(title=name, children=[
             health_card,
             ui.Button("Disconnect", variant="secondary",
