@@ -1,3 +1,5 @@
+import asyncio
+
 from imperal_sdk import ActionResult, sdl
 from app import chat
 from models import (_NoParams, Site, ListContentParams, ListMediaParams,
@@ -93,25 +95,39 @@ async def list_media(ctx, params: ListMediaParams) -> ActionResult:
 @chat.function("get_site_health", description="Report read-only health for a connected WordPress site.",
                action_type="read", data_model=SiteHealth)
 async def get_site_health(ctx, params: SiteIdParams) -> ActionResult:
-    """Report best-effort read-only health: reachability, auth, SSL, and content counts (up to 100 each)."""
+    """Report best-effort read-only health: reachability, auth, SSL, and content counts."""
     auth, err = await _authed(ctx, params.site_id)
     if err:
         return ActionResult.error(err, retryable=False)
     base_url, username, pw = auth
 
-    counts, reachable, auth_ok = {}, False, False
-    try:
-        me = await wp_get(ctx, base_url, "/wp-json/wp/v2/users/me", username=username, app_password=pw)
-        reachable = True
-        auth_ok = me.status_code == 200
-        for kind in ("posts", "pages", "media"):
-            cr = await wp_get(ctx, base_url, f"/wp-json/wp/v2/{kind}",
-                              username=username, app_password=pw, params={"per_page": 100})
-            counts[kind] = len(cr.body) if cr.status_code == 200 and isinstance(cr.body, list) else 0
-    except Exception as e:
-        await ctx.log(f"health http error: {e}", level="error")
+    async def _call(path, per_page=1):
+        try:
+            return await wp_get(ctx, base_url, path, username=username, app_password=pw,
+                                params={"per_page": per_page})
+        except Exception:
+            return None
 
-    health = SiteHealth(id=params.site_id, title=f"Health for {params.site_id}", kind="wp_site_health",
-                        reachable=reachable, auth_ok=auth_ok, ssl_valid=base_url.startswith("https://"),
-                        content_counts=counts)
-    return ActionResult.success(health, summary="Site health (read-only)")
+    me, posts_r, pages_r, media_r = await asyncio.gather(
+        _call("/wp-json/wp/v2/users/me"),
+        _call("/wp-json/wp/v2/posts", 100),
+        _call("/wp-json/wp/v2/pages", 100),
+        _call("/wp-json/wp/v2/media", 100),
+    )
+
+    def _count(r):
+        return len(r.body) if r and r.status_code == 200 and isinstance(r.body, list) else 0
+
+    reachable = me is not None
+    auth_ok = me is not None and me.status_code == 200
+    counts = {"posts": _count(posts_r), "pages": _count(pages_r), "media": _count(media_r)}
+    health = SiteHealth(
+        id=params.site_id, title=params.site_id, kind="wp_site_health",
+        reachable=reachable, auth_ok=auth_ok, ssl_valid=base_url.startswith("https://"),
+        content_counts=counts,
+    )
+    status = "✅" if auth_ok else ("⚠️" if reachable else "❌")
+    return ActionResult.success(
+        health,
+        summary=f"{status} {params.site_id}: {counts['posts']} posts · {counts['pages']} pages · {counts['media']} media",
+    )

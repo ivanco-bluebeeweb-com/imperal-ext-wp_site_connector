@@ -53,31 +53,19 @@ def _content_tab(label, items):
     ])}
 
 
-def _health_card(reachable, auth_ok, ssl_valid, counts):
-    lines = [
-        ui.Text(f"Reachable: {'yes' if reachable else 'no'}"),
-        ui.Text(f"Auth: {'ok' if auth_ok else 'failed'}"),
-        ui.Text(f"SSL: {'valid' if ssl_valid else 'no'}"),
-        ui.Text("Posts: {p} · Pages: {g} · Media: {m} (up to 100)".format(
-            p=counts.get("posts", 0), g=counts.get("pages", 0), m=counts.get("media", 0))),
-        ui.Text(f"Plugin updates: {VNEXT}"),
-        ui.Text(f"PHP version: {VNEXT}"),
-    ]
-    return ui.Card(title="Health (read-only)", content=ui.Stack(children=lines))
-
-
 @ext.panel("detail", slot="center", title="Site")
 async def detail(ctx, site_id=None, **kwargs):
-    """Center panel: site header + read-only health card + content tabs (Posts/Pages/Media)."""
+    """Center panel: site dashboard — health status, content counts, and content tabs."""
     if not site_id:
-        return ui.Empty(message="Select a site to view its content.")
+        return ui.Empty(message="Select a site to view its dashboard.")
     record = await storage.get_site_record(ctx, site_id) or {}
     name = record.get("name", site_id)
-    base_url = record.get("url")
+    base_url = record.get("url", "")
     pw = await storage.get_credential(ctx, site_id)
     if not base_url or not pw:
-        return ui.Stack(children=[ui.Section(children=[
-            ui.Empty(message="Credential missing — reconnect this site.")], title=name)])
+        return ui.Section(title=name, children=[
+            ui.Empty(message="Credential missing — reconnect this site.")
+        ])
 
     username = record.get("username", "")
 
@@ -90,25 +78,45 @@ async def detail(ctx, site_id=None, **kwargs):
 
     me, posts_r, pages_r, media_r = await asyncio.gather(
         _get("/wp-json/wp/v2/users/me", 1),
-        _get("/wp-json/wp/v2/posts", 100),
-        _get("/wp-json/wp/v2/pages", 100),
-        _get("/wp-json/wp/v2/media", 100),
+        _get("/wp-json/wp/v2/posts", 20),
+        _get("/wp-json/wp/v2/pages", 20),
+        _get("/wp-json/wp/v2/media", 20),
     )
+    reachable = me is not None
+    auth_ok = me is not None and me.status_code == 200
+    ssl_valid = base_url.startswith("https://")
     posts, pages, media = _items_or_none(posts_r), _items_or_none(pages_r), _items_or_none(media_r)
-    counts = {
-        "posts": len(posts) if posts is not None else 0,
-        "pages": len(pages) if pages is not None else 0,
-        "media": len(media) if media is not None else 0,
-    }
-    health = _health_card(
-        reachable=me is not None,
-        auth_ok=me is not None and me.status_code == 200,
-        ssl_valid=base_url.startswith("https://"),
-        counts=counts,
+
+    def _n(lst): return len(lst) if lst is not None else "?"
+
+    # Status badges row
+    status_row = ui.Stack(direction="h", gap=2, children=[
+        ui.Badge("Reachable" if reachable else "Unreachable",
+                 color="green" if reachable else "red"),
+        ui.Badge("Auth OK" if auth_ok else "Auth failed",
+                 color="green" if auth_ok else "red"),
+        ui.Badge("HTTPS" if ssl_valid else "No SSL",
+                 color="green" if ssl_valid else "red"),
+    ])
+    counts_row = ui.Stack(direction="h", gap=3, children=[
+        ui.Badge(f"{_n(posts)}", value="posts", color="gray"),
+        ui.Badge(f"{_n(pages)}", value="pages", color="gray"),
+        ui.Badge(f"{_n(media)}", value="media", color="gray"),
+    ])
+    health_card = ui.Card(
+        title="Status",
+        subtitle=base_url,
+        content=ui.Stack(children=[status_row, counts_row]),
     )
+
     tabs = [_content_tab("Posts", posts), _content_tab("Pages", pages), _content_tab("Media", media)]
+
     return ui.Stack(children=[
-        ui.Section(children=[health], title=name),
+        ui.Section(title=name, children=[
+            health_card,
+            ui.Button("Disconnect", variant="secondary",
+                      on_click=ui.Call("forget_site", site_id=site_id)),
+        ]),
         ui.Tabs(tabs=tabs),
     ])
 

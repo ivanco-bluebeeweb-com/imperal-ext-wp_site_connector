@@ -29,8 +29,8 @@ async def test_detail_renders_site_content():
     node = await panels.detail(ctx, site_id="x-com")
     s = str(node)
     assert "Hello" in s                      # content tab rendered
-    assert "Health (read-only)" in s         # health card present
-    assert "Posts: 1" in s                   # health counts from len(body)
+    assert "Status" in s                     # health card present
+    assert "Reachable" in s                  # status badge
 
 
 async def test_connect_form_has_password_field():
