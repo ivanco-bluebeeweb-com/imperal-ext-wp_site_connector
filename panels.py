@@ -23,11 +23,17 @@ async def dashboard(ctx, **kwargs):
         for r in rows
     ]
     body = ui.List(items=items) if items else ui.Empty(message="No sites connected yet.")
-    return ui.Stack(children=[
+    root = ui.Stack(children=[
         ui.Button("+ Connect site", variant="primary", full_width=True,
                   on_click=ui.Call("__panel__connect_form")),
         body,
     ])
+    # Load center panel on mount so center_overlay has a slot to open on top of.
+    if rows:
+        root.props["auto_action"] = ui.Call("__panel__detail", site_id=rows[0]["id"])
+    else:
+        root.props["auto_action"] = ui.Call("__panel__detail")
+    return root
 
 
 def _items_or_none(r):
