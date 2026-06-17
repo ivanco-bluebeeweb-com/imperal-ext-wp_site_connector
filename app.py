@@ -27,8 +27,3 @@ async def health_check(ctx) -> dict:
     return {"status": "ok"}
 
 
-# Handler modules register their decorators on import (after ext/chat exist).
-import handlers_connect  # noqa: E402,F401
-import handlers_read  # noqa: E402,F401
-import skeleton  # noqa: E402,F401
-import panels  # noqa: E402,F401
