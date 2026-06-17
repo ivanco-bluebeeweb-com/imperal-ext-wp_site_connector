@@ -32,7 +32,7 @@ async def overview(ctx, search="", status_filter="", **kwargs):
     filtered = [
         r for r in rows
         if (not search or search.lower() in r.get("name", "").lower())
-        and (not status_filter or r.get("status", "") == status_filter)
+        and (not status_filter or r.get("status", "connected") == status_filter)
     ]
 
     # Header
