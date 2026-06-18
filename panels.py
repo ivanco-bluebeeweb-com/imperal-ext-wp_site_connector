@@ -33,7 +33,7 @@ def _site_card(record):
 
 @ext.panel("overview", slot="center", title="WP Sites")
 async def overview(ctx, search="", status_filter="", **kwargs):
-    """Single-panel monitoring overview: searchable, filterable 2-column grid of site cards."""
+    """Single-panel monitoring overview: searchable, filterable 3-column grid of site cards with status Select filter."""
     rows = await storage.list_site_records(ctx)
     total = len(rows)
 

@@ -158,7 +158,7 @@ async def refresh_site(ctx, params: SiteIdParams) -> ActionResult:
     except Exception as e:
         await ctx.log(f"refresh_site http error: {e}", level="error")
         return ActionResult.error("Could not reach the site — try again.", retryable=True)
-    status = "connected" if r.status_code == 200 else "error"
+    status = "connected" if 200 <= r.status_code < 300 else "error"
     record = await storage.get_site_record(ctx, params.site_id) or {}
     await storage.save_site_record(ctx, {**record, "status": status, "last_checked": _now()})
     name = record.get("name", params.site_id)
