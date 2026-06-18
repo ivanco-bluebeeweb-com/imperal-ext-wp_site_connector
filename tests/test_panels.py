@@ -22,6 +22,7 @@ async def test_overview_renders_site_cards():
     s = str(node)
     assert "Alpha" in s
     assert "Beta" in s
+    assert "Grid" in s  # ui.Grid(columns=2) must be used, not manual Stack pairs
 
 
 async def test_overview_search_filter():
@@ -105,3 +106,22 @@ async def test_detail_has_back_button():
     node = await panels.detail(ctx, site_id="x-com")
     s = str(node)
     assert "__panel__overview" in s  # back button points to overview
+
+
+async def test_detail_renders_site_content():
+    ctx = MockContext()
+    ctx.secrets = MockSecretStore({})
+    await storage.save_site_record(ctx, {"id": "x-com", "name": "X", "url": "https://x.com", "username": "admin", "status": "connected"})
+    await storage.set_credential(ctx, "x-com", "pw")
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/users/me", {"name": "Admin"}, 200)
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/posts",
+                      [{"id": 1, "title": {"rendered": "Hello"}, "status": "publish", "date": "2026-06-15T00:00:00"}], 200)
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/pages", [], 200)
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/media", [], 200)
+    node = await panels.detail(ctx, site_id="x-com")
+    s = str(node)
+    assert "Page" in s        # ui.Page wrapper
+    assert "Stats" in s       # ui.Stats for health + counts
+    assert "Reachable" in s   # Stat label
+    assert "DataTable" in s   # ui.DataTable for content tabs
+    assert "Hello" in s       # post title appears in table rows
