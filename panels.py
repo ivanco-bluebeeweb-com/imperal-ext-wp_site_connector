@@ -14,14 +14,20 @@ def _site_card(record):
     name = urlparse(url).netloc or record.get("name", site_id)
     status = record.get("status", "connected")
     is_ok = status == "connected"
-    return ui.ListItem(
-        id=site_id,
-        title=name,
-        badge=ui.Badge(label="", color="green" if is_ok else "red"),
-        actions=[
-            {"icon": "RefreshCw", "on_click": ui.Call("refresh_site", site_id=site_id)},
-            {"icon": "Trash2",    "on_click": ui.Call("forget_site",  site_id=site_id)},
-        ],
+    refresh_btn = ui.Button(
+        "", icon="RefreshCw", variant="ghost", size="sm",
+        on_click=ui.Call("refresh_site", site_id=site_id),
+    )
+    menu = ui.Menu(items=[
+        {"label": "Remove site", "icon": "Trash2",
+         "on_click": ui.Call("forget_site", site_id=site_id)},
+    ])
+    return ui.Card(
+        content=ui.Stack(direction="h", justify="between", align="center", children=[
+            ui.Badge(label="", color="green" if is_ok else "red"),
+            ui.Text(name),
+        ]),
+        footer=ui.Stack(direction="h", gap=1, children=[refresh_btn, menu]),
         on_click=ui.Call("__panel__detail", site_id=site_id),
     )
 
@@ -46,7 +52,7 @@ async def overview(ctx, search="", status_filter="", **kwargs):
     # Header
     header = ui.Stack(direction="h", justify="between", children=[
         ui.Text(f"{total} site{'s' if total != 1 else ''} connected", variant="heading"),
-        ui.Button("+ Connect New Site", variant="primary",
+        ui.Button("Connect New Site", variant="primary",
                   on_click=ui.Call("__panel__connect_form")),
     ])
 
@@ -78,9 +84,7 @@ async def overview(ctx, search="", status_filter="", **kwargs):
         grid = ui.Empty(message="No sites match your filter.")
     else:
         connect_card = ui.Card(
-            content=ui.Stack(direction="v", align="center", justify="center", gap=2, children=[
-                ui.Text("Connect new site"),
-            ]),
+            content=ui.Text("Connect new site"),
             on_click=ui.Call("__panel__connect_form"),
         )
         grid = ui.Grid(columns=3, gap=4,
