@@ -1,4 +1,5 @@
 import asyncio
+from urllib.parse import urlparse
 
 from imperal_sdk import ui
 from app import ext
@@ -8,7 +9,6 @@ import storage
 
 
 def _site_card(record):
-    from urllib.parse import urlparse
     site_id = record.get("id", "")
     url = record.get("url", "")
     name = urlparse(url).netloc or record.get("name", site_id)
@@ -40,9 +40,14 @@ async def overview(ctx, search="", status_filter="", **kwargs):
     rows = await storage.list_site_records(ctx)
     total = len(rows)
 
+    def _matches_search(r, q):
+        netloc = urlparse(r.get("url", "")).netloc.lower()
+        name = r.get("name", "").lower()
+        return q in name or q in netloc
+
     filtered = [
         r for r in rows
-        if (not search or search.lower() in r.get("name", "").lower())
+        if (not search or _matches_search(r, search.lower()))
         and (not status_filter or r.get("status", "connected") == status_filter)
     ]
 
