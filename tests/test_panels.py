@@ -125,3 +125,37 @@ async def test_detail_renders_site_content():
     assert "Reachable" in s   # Stat label
     assert "DataTable" in s   # ui.DataTable for content tabs
     assert "Hello" in s       # post title appears in table rows
+
+
+async def test_overview_card_calls_refresh_site():
+    ctx = MockContext()
+    ctx.secrets = MockSecretStore({})
+    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha",
+                                         "url": "https://a.com", "status": "connected"})
+    node = await panels.overview(ctx)
+    s = str(node)
+    assert "refresh_site" in s
+
+
+async def test_overview_card_has_remove_menu():
+    ctx = MockContext()
+    ctx.secrets = MockSecretStore({})
+    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha",
+                                         "url": "https://a.com", "status": "connected"})
+    node = await panels.overview(ctx)
+    s = str(node)
+    assert "forget_site" in s
+
+
+async def test_overview_header_uses_heading_variant():
+    ctx = MockContext()
+    node = await panels.overview(ctx)
+    s = str(node)
+    assert "heading" in s
+
+
+async def test_overview_filter_bar_has_status_select():
+    ctx = MockContext()
+    node = await panels.overview(ctx)
+    s = str(node)
+    assert "status_filter" in s

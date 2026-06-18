@@ -13,13 +13,21 @@ def _site_card(record):
     url = record.get("url", "")
     status = record.get("status", "connected")
     is_ok = status == "connected"
+    refresh_btn = ui.Button(
+        "", icon="RefreshCw", variant="ghost", size="sm",
+        on_click=ui.Call("refresh_site", site_id=site_id),
+    )
+    menu = ui.Menu(items=[
+        {"label": "Remove site", "icon": "Trash2",
+         "on_click": ui.Call("forget_site", site_id=site_id)},
+    ])
     return ui.Card(
         title=name,
         subtitle=url,
         content=ui.Badge("Connected" if is_ok else "Error",
                          color="green" if is_ok else "red"),
-        footer=ui.Button("View", variant="secondary",
-                         on_click=ui.Call("__panel__detail", site_id=site_id)),
+        footer=ui.Stack(direction="h", gap=2, children=[refresh_btn, menu]),
+        on_click=ui.Call("__panel__detail", site_id=site_id),
     )
 
 
@@ -37,20 +45,12 @@ async def overview(ctx, search="", status_filter="", **kwargs):
 
     # Header
     header = ui.Stack(direction="h", justify="between", children=[
-        ui.Text(f"{total} site{'s' if total != 1 else ''} connected"),
+        ui.Text(f"{total} site{'s' if total != 1 else ''} connected", variant="heading"),
         ui.Button("+ Connect New Site", variant="primary",
                   on_click=ui.Call("__panel__connect_form")),
     ])
 
     # Filter bar
-    def _filter_btn(label, value):
-        active = (value == "" and not status_filter) or (value and status_filter == value)
-        return ui.Button(
-            label,
-            variant="primary" if active else "secondary",
-            on_click=ui.Call("__panel__overview", search=search, status_filter=value),
-        )
-
     filter_bar = ui.Stack(direction="h", gap=2, children=[
         ui.Input(
             placeholder="Search sites… (Enter to filter)",
@@ -58,11 +58,17 @@ async def overview(ctx, search="", status_filter="", **kwargs):
             value=search,
             on_submit=ui.Call("__panel__overview", status_filter=status_filter),
         ),
-        ui.Stack(direction="h", gap=1, children=[
-            _filter_btn("All", ""),
-            _filter_btn("Connected", "connected"),
-            _filter_btn("Error", "error"),
-        ]),
+        ui.Select(
+            options=[
+                {"value": "",          "label": "All"},
+                {"value": "connected", "label": "Connected"},
+                {"value": "error",     "label": "Error"},
+            ],
+            value=status_filter,
+            placeholder="All",
+            param_name="status_filter",
+            on_change=ui.Call("__panel__overview", search=search),
+        ),
     ])
 
     # Grid
@@ -71,7 +77,7 @@ async def overview(ctx, search="", status_filter="", **kwargs):
     elif not filtered:
         grid = ui.Empty(message="No sites match your filter.")
     else:
-        grid = ui.Grid(columns=2, gap=4, children=[_site_card(r) for r in filtered])
+        grid = ui.Grid(columns=3, gap=4, children=[_site_card(r) for r in filtered])
 
     return ui.Stack(gap=4, children=[header, filter_bar, grid])
 
