@@ -84,13 +84,34 @@ def _items_or_none(r):
 
 def _content_tab(label, items):
     if items is None:
-        return {"label": label, "content": ui.Empty(message="Could not load — check the connection.")}
+        return {"label": label, "content": ui.Alert(
+            message="Could not load — check the connection.", type="error")}
     if not items:
         return {"label": label, "content": ui.Empty(message=f"No {label.lower()} found.")}
-    return {"label": label, "content": ui.List(items=[
-        ui.ListItem(id=str(it.get("id")), title=wp_title(it), subtitle=it.get("status", ""))
-        for it in items
-    ])}
+    if label == "Media":
+        columns = [
+            ui.DataColumn("title",     "Title", sortable=True),
+            ui.DataColumn("mime_type", "Type",  sortable=True),
+        ]
+        rows = [
+            {"title": wp_title(it), "mime_type": it.get("mime_type", "")}
+            for it in items
+        ]
+    else:
+        columns = [
+            ui.DataColumn("title",  "Title",  sortable=True),
+            ui.DataColumn("status", "Status", sortable=True),
+            ui.DataColumn("date",   "Date",   sortable=True),
+        ]
+        rows = [
+            {
+                "title":  wp_title(it),
+                "status": it.get("status", ""),
+                "date":   (it.get("date", "") or "")[:10],
+            }
+            for it in items
+        ]
+    return {"label": label, "content": ui.DataTable(columns=columns, rows=rows)}
 
 
 @ext.panel("detail", slot="center", title="Site")
@@ -129,37 +150,26 @@ async def detail(ctx, site_id=None, **kwargs):
 
     def _n(lst): return len(lst) if lst is not None else "?"
 
-    # Status badges row
-    status_row = ui.Stack(direction="h", gap=2, children=[
-        ui.Badge("Reachable" if reachable else "Unreachable",
-                 color="green" if reachable else "red"),
-        ui.Badge("Auth OK" if auth_ok else "Auth failed",
-                 color="green" if auth_ok else "red"),
-        ui.Badge("HTTPS" if ssl_valid else "No SSL",
-                 color="green" if ssl_valid else "red"),
+    health_stats = ui.Stats(columns=3, children=[
+        ui.Stat(label="Reachable", value="Yes" if reachable else "No",
+                color="green" if reachable else "red"),
+        ui.Stat(label="Auth",      value="OK" if auth_ok else "Failed",
+                color="green" if auth_ok else "red"),
+        ui.Stat(label="SSL",       value="HTTPS" if ssl_valid else "HTTP",
+                color="green" if ssl_valid else "red"),
     ])
-    counts_row = ui.Stack(direction="h", gap=3, children=[
-        ui.Badge(f"{_n(posts)}", value="posts", color="gray"),
-        ui.Badge(f"{_n(pages)}", value="pages", color="gray"),
-        ui.Badge(f"{_n(media)}", value="media", color="gray"),
+    count_stats = ui.Stats(columns=3, children=[
+        ui.Stat(label="Posts", value=_n(posts), color="blue"),
+        ui.Stat(label="Pages", value=_n(pages), color="blue"),
+        ui.Stat(label="Media", value=_n(media), color="blue"),
     ])
-    health_card = ui.Card(
-        title="Status",
-        subtitle=base_url,
-        content=ui.Stack(children=[status_row, counts_row]),
-    )
-
     tabs = [_content_tab("Posts", posts), _content_tab("Pages", pages), _content_tab("Media", media)]
-
     back_btn = ui.Button("← All sites", variant="secondary",
                          on_click=ui.Call("__panel__overview"))
-    return ui.Stack(children=[
+    return ui.Page(title=name, subtitle=base_url, children=[
         back_btn,
-        ui.Section(title=name, children=[
-            health_card,
-            ui.Button("Disconnect", variant="secondary",
-                      on_click=ui.Call("forget_site", site_id=site_id)),
-        ]),
+        health_stats,
+        count_stats,
         ui.Tabs(tabs=tabs),
     ])
 
