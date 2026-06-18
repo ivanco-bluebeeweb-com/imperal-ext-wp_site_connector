@@ -23,7 +23,7 @@ def _site_card(record):
     )
 
 
-@ext.panel("overview", slot="center")
+@ext.panel("overview", slot="center", title="WP Sites")
 async def overview(ctx, search="", status_filter="", **kwargs):
     """Single-panel monitoring overview: searchable, filterable 2-column grid of site cards."""
     rows = await storage.list_site_records(ctx)
