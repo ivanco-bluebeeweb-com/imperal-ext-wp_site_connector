@@ -46,7 +46,7 @@ async def connect_site(ctx, params: ConnectSiteParams) -> ActionResult:
     await storage.set_credential(ctx, site_id, params.app_password)
     site = Site(id=site_id, title=name, kind="wp_site", url=base_url,
                 username=params.username, status="connected")
-    return ActionResult.success(site, summary=f"Connected {name}", refresh_panels=["dashboard"])
+    return ActionResult.success(site, summary=f"Connected {name}", refresh_panels=["overview"])
 
 
 # forget_site IS a @chat.function with action_type="destructive": the web-kernel shows the
@@ -69,4 +69,4 @@ async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
     site = Site(id=params.site_id, title=record.get("name", params.site_id), kind="wp_site",
                 url=record.get("url", ""), username=record.get("username", ""), status="disconnected")
     return ActionResult.success(
-        site, summary=f"Disconnected {record.get('name', params.site_id)}", refresh_panels=["dashboard"])
+        site, summary=f"Disconnected {record.get('name', params.site_id)}", refresh_panels=["overview"])
