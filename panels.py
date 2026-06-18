@@ -71,11 +71,7 @@ async def overview(ctx, search="", status_filter="", **kwargs):
     elif not filtered:
         grid = ui.Empty(message="No sites match your filter.")
     else:
-        pairs = [filtered[i:i + 2] for i in range(0, len(filtered), 2)]
-        grid = ui.Stack(children=[
-            ui.Stack(direction="h", gap=3, children=[_site_card(r) for r in pair])
-            for pair in pairs
-        ])
+        grid = ui.Grid(columns=2, gap=4, children=[_site_card(r) for r in filtered])
 
     return ui.Stack(gap=4, children=[header, filter_bar, grid])
 
