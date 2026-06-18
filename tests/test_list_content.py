@@ -2,7 +2,7 @@ from imperal_sdk.testing import MockContext, MockSecretStore
 import app  # noqa: F401
 import handlers_read as hr
 import storage
-from models import ListContentParams, ListMediaParams
+from models import ListContentParams, ListMediaParams, SiteIdParams
 
 
 async def _connected_ctx():
@@ -50,3 +50,31 @@ async def test_list_media_maps_source_url():
                       [{"id": 9, "title": {"rendered": "img"}, "source_url": "https://x.com/img.png", "mime_type": "image/png"}], 200)
     r = await hr.list_media(ctx, ListMediaParams(site_id="x-com"))
     assert r.data.items[0].url.endswith("img.png") and r.data.items[0].mime_type == "image/png"
+
+
+async def test_refresh_site_sets_connected_on_200():
+    ctx = await _connected_ctx()
+    # site starts as "error"
+    await storage.save_site_record(ctx, {"id": "x-com", "name": "X", "url": "https://x.com",
+                                         "username": "admin", "status": "error"})
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/users/me", {"name": "Admin"}, 200)
+    result = await hr.refresh_site(ctx, SiteIdParams(site_id="x-com"))
+    assert result.status == "success"
+    record = await storage.get_site_record(ctx, "x-com")
+    assert record["status"] == "connected"
+
+
+async def test_refresh_site_sets_error_on_401():
+    ctx = await _connected_ctx()
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/users/me", {"code": "rest_forbidden"}, 401)
+    result = await hr.refresh_site(ctx, SiteIdParams(site_id="x-com"))
+    assert result.status == "success"  # function itself succeeded — status was updated
+    record = await storage.get_site_record(ctx, "x-com")
+    assert record["status"] == "error"
+
+
+async def test_refresh_site_errors_on_missing_site():
+    ctx = MockContext()
+    ctx.secrets = MockSecretStore({})
+    result = await hr.refresh_site(ctx, SiteIdParams(site_id="no-such-site"))
+    assert result.status == "error"

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 
 from imperal_sdk import ActionResult, sdl
 from app import chat
@@ -130,4 +131,42 @@ async def get_site_health(ctx, params: SiteIdParams) -> ActionResult:
     return ActionResult.success(
         health,
         summary=f"{status} {params.site_id}: {counts['posts']} posts · {counts['pages']} pages · {counts['media']} media",
+    )
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@chat.function(
+    "refresh_site",
+    description="Re-check connectivity and auth for a connected WordPress site and update its stored status.",
+    action_type="write",
+    data_model=Site,
+    effects=["wp.health_check"],
+    event="wp-site-connector.refresh_site",
+)
+async def refresh_site(ctx, params: SiteIdParams) -> ActionResult:
+    """Ping the site REST API, update stored status, and refresh the overview panel."""
+    auth, err = await _authed(ctx, params.site_id)
+    if err:
+        return ActionResult.error(err, retryable=False)
+    base_url, username, pw = auth
+    try:
+        r = await wp_get(ctx, base_url, "/wp-json/wp/v2/users/me",
+                         username=username, app_password=pw)
+    except Exception as e:
+        await ctx.log(f"refresh_site http error: {e}", level="error")
+        return ActionResult.error("Could not reach the site — try again.", retryable=True)
+    status = "connected" if r.status_code == 200 else "error"
+    record = await storage.get_site_record(ctx, params.site_id) or {}
+    await storage.save_site_record(ctx, {**record, "status": status, "last_checked": _now()})
+    name = record.get("name", params.site_id)
+    site = Site(id=params.site_id, title=name, kind="wp_site",
+                url=base_url, username=username, status=status)
+    icon = "✅" if status == "connected" else "❌"
+    return ActionResult.success(
+        site,
+        summary=f"{icon} {name}: {status}",
+        refresh_panels=["overview"],
     )
