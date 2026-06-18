@@ -8,9 +8,10 @@ import storage
 
 
 def _site_card(record):
+    from urllib.parse import urlparse
     site_id = record.get("id", "")
-    name = record.get("name", site_id)
     url = record.get("url", "")
+    name = urlparse(url).netloc or record.get("name", site_id)
     status = record.get("status", "connected")
     is_ok = status == "connected"
     refresh_btn = ui.Button(
@@ -22,11 +23,13 @@ def _site_card(record):
          "on_click": ui.Call("forget_site", site_id=site_id)},
     ])
     return ui.Card(
-        title=name,
-        subtitle=url,
-        content=ui.Badge("Connected" if is_ok else "Error",
-                         color="green" if is_ok else "red"),
-        footer=ui.Stack(direction="h", gap=2, children=[refresh_btn, menu]),
+        content=ui.Stack(direction="h", justify="between", align="center", children=[
+            ui.Stack(direction="h", gap=2, align="center", children=[
+                ui.Badge(label="", color="green" if is_ok else "red"),
+                ui.Text(name),
+            ]),
+            ui.Stack(direction="h", gap=1, children=[refresh_btn, menu]),
+        ]),
         on_click=ui.Call("__panel__detail", site_id=site_id),
     )
 
@@ -77,7 +80,16 @@ async def overview(ctx, search="", status_filter="", **kwargs):
     elif not filtered:
         grid = ui.Empty(message="No sites match your filter.")
     else:
-        grid = ui.Grid(columns=3, gap=4, children=[_site_card(r) for r in filtered])
+        connect_card = ui.Card(
+            content=ui.Stack(direction="v", align="center", justify="center", gap=2, children=[
+                ui.Button("", icon="Plus", variant="ghost", size="sm",
+                          on_click=ui.Call("__panel__connect_form")),
+                ui.Text("Connect new site"),
+            ]),
+            on_click=ui.Call("__panel__connect_form"),
+        )
+        grid = ui.Grid(columns=3, gap=4,
+                       children=[_site_card(r) for r in filtered] + [connect_card])
 
     return ui.Stack(gap=4, children=[header, filter_bar, grid])
 

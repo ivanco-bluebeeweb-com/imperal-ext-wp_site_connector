@@ -39,7 +39,8 @@ async def connect_site(ctx, params: ConnectSiteParams) -> ActionResult:
                                   retryable=r.status_code >= 500 or r.status_code == 429)
 
     body = r.body if isinstance(r.body, dict) else {}
-    name = body.get("name") or base_url
+    from urllib.parse import urlparse
+    name = urlparse(base_url).netloc or base_url
     record = {"id": site_id, "name": name, "url": base_url, "username": params.username,
               "status": "connected", "last_checked": _now()}
     await storage.save_site_record(ctx, record)

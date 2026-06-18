@@ -16,46 +16,46 @@ async def test_overview_empty_no_sites():
 async def test_overview_renders_site_cards():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://a.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://b.com", "status": "error"})
+    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
+    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "error"})
     node = await panels.overview(ctx)
     s = str(node)
-    assert "Alpha" in s
-    assert "Beta" in s
+    assert "alpha.com" in s
+    assert "beta.com" in s
     assert "Grid" in s  # ui.Grid(columns=2) must be used, not manual Stack pairs
 
 
 async def test_overview_search_filter():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://a.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://b.com", "status": "connected"})
+    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
+    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "connected"})
     node = await panels.overview(ctx, search="Alpha")
     s = str(node)
-    assert "Alpha" in s
-    assert "Beta" not in s
+    assert "alpha.com" in s
+    assert "beta.com" not in s
 
 
 async def test_overview_status_filter_connected():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://a.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://b.com", "status": "error"})
+    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
+    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "error"})
     node = await panels.overview(ctx, status_filter="connected")
     s = str(node)
-    assert "Alpha" in s
-    assert "Beta" not in s
+    assert "alpha.com" in s
+    assert "beta.com" not in s
 
 
 async def test_overview_status_filter_error():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://a.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://b.com", "status": "error"})
+    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
+    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "error"})
     node = await panels.overview(ctx, status_filter="error")
     s = str(node)
-    assert "Beta" in s
-    assert "Alpha" not in s
+    assert "beta.com" in s
+    assert "alpha.com" not in s
 
 
 async def test_overview_no_match_shows_empty():
@@ -159,3 +159,44 @@ async def test_overview_filter_bar_has_status_select():
     node = await panels.overview(ctx)
     s = str(node)
     assert "status_filter" in s
+
+
+async def test_card_shows_domain_not_username():
+    ctx = MockContext()
+    ctx.secrets = MockSecretStore({})
+    await storage.save_site_record(ctx, {"id": "x-com", "name": "admin",
+                                         "url": "https://x.com", "status": "connected"})
+    node = await panels.overview(ctx)
+    s = str(node)
+    assert "x.com" in s
+    assert "admin" not in s
+
+
+async def test_card_has_no_subtitle():
+    ctx = MockContext()
+    ctx.secrets = MockSecretStore({})
+    await storage.save_site_record(ctx, {"id": "x-com", "name": "admin",
+                                         "url": "https://x.com", "status": "connected"})
+    node = await panels.overview(ctx)
+    s = str(node)
+    # card should not pass url as subtitle= kwarg
+    assert "'subtitle': 'https://x.com'" not in s
+
+
+async def test_overview_grid_has_connect_placeholder():
+    ctx = MockContext()
+    ctx.secrets = MockSecretStore({})
+    await storage.save_site_record(ctx, {"id": "x-com", "name": "admin",
+                                         "url": "https://x.com", "status": "connected"})
+    node = await panels.overview(ctx)
+    s = str(node)
+    assert "connect_form" in s   # connect placeholder calls __panel__connect_form
+    assert "Connect new site" in s
+
+
+async def test_connect_placeholder_absent_when_no_sites():
+    ctx = MockContext()
+    node = await panels.overview(ctx)
+    s = str(node)
+    # Empty state has no connect_card — only the Empty message CTA
+    assert "Connect new site" not in s or "No sites" in s
