@@ -72,7 +72,8 @@ async def get_content_cache(ctx, site_id):
 
 
 async def set_content_cache(ctx, site_id, posts=None, pages=None, media=None,
-                            comments=None, scheduled=None, users=None, orders=None):
+                            comments=None, scheduled=None, users=None, orders=None,
+                            dynamic=None):
     data = {
         "site_id":   site_id,
         "posts":     posts or [],
@@ -81,7 +82,8 @@ async def set_content_cache(ctx, site_id, posts=None, pages=None, media=None,
         "comments":  comments or [],
         "scheduled": scheduled or [],
         "users":     users or [],
-        "orders":    orders,  # None = WC not installed; [] = installed but no orders
+        "orders":    orders,   # None = WC not installed; [] = installed but no orders
+        "dynamic":   dynamic or {},  # CPTs, taxonomies, metadata
     }
     doc = await _find_doc(ctx, CACHE_COLLECTION, site_id)
     if doc:

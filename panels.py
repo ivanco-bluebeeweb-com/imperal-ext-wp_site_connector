@@ -6,6 +6,15 @@ from app import ext
 from wp_client import wp_get, wp_title
 import storage
 
+# WordPress built-in types and taxonomies — skip these when showing custom ones
+_BUILTIN_TYPES = {
+    "post", "page", "attachment", "revision", "nav_menu_item",
+    "custom_css", "customize_changeset", "oembed_cache", "user_request",
+    "wp_block", "wp_template", "wp_template_part", "wp_navigation",
+    "wp_global_styles",
+}
+_BUILTIN_TAXES = {"nav_menu", "link_category", "post_format"}
+
 
 # ── Left sidebar ──────────────────────────────────────────────────────────────
 
@@ -75,7 +84,6 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
 async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
-    """Single center overlay: connect form or site detail."""
     if view == "connect":
         return _render_connect_form()
     if site_id:
@@ -119,76 +127,71 @@ def _render_content_table(items, tab):
                             type="info")
         return ui.Alert(message="Could not load — check the connection.", type="error")
     if not items:
-        labels = {
-            "posts": "posts", "pages": "pages", "media": "media files",
-            "comments": "comments", "scheduled": "scheduled posts",
-            "users": "users", "orders": "orders",
-        }
-        return ui.Empty(message=f"No {labels.get(tab, tab)} found.")
+        return ui.Empty(message=f"No {tab.replace('cpt:', '').replace('tax:', '')} found.")
 
+    # Taxonomy terms
+    if tab.startswith("tax:"):
+        cols = [ui.DataColumn("name",  "Term",  sortable=True),
+                ui.DataColumn("count", "Posts", sortable=True),
+                ui.DataColumn("slug",  "Slug",  sortable=True)]
+        rows = [{"name": it.get("name", ""), "count": str(it.get("count", 0)),
+                 "slug": it.get("slug", "")} for it in items]
+        return ui.DataTable(columns=cols, rows=rows)
+
+    # Media
     if tab == "media":
         cols = [ui.DataColumn("title", "Title", sortable=True),
                 ui.DataColumn("type",  "Type",  sortable=True)]
         rows = [{"title": wp_title(it), "type": it.get("mime_type", "")} for it in items]
+        return ui.DataTable(columns=cols, rows=rows)
 
-    elif tab == "comments":
+    # Comments
+    if tab == "comments":
         cols = [ui.DataColumn("author",  "Author",  sortable=True),
                 ui.DataColumn("snippet", "Comment", sortable=False),
                 ui.DataColumn("status",  "Status",  sortable=True),
                 ui.DataColumn("date",    "Date",    sortable=True)]
-        rows = [
-            {
-                "author":  it.get("author_name", ""),
-                "snippet": (it.get("content", {}).get("rendered", "") or "")
-                           .replace("<p>", "").replace("</p>", "")[:60],
-                "status":  it.get("status", ""),
-                "date":    (it.get("date", "") or "")[:10],
-            }
-            for it in items
-        ]
+        rows = [{"author": it.get("author_name", ""),
+                 "snippet": (it.get("content", {}).get("rendered", "") or "")
+                             .replace("<p>", "").replace("</p>", "")[:60],
+                 "status": it.get("status", ""),
+                 "date":   (it.get("date", "") or "")[:10]} for it in items]
+        return ui.DataTable(columns=cols, rows=rows)
 
-    elif tab == "scheduled":
-        cols = [ui.DataColumn("title",  "Title",    sortable=True),
-                ui.DataColumn("date",   "Scheduled", sortable=True)]
-        rows = [{"title": wp_title(it), "date": (it.get("date", "") or "")[:16].replace("T", " ")}
-                for it in items]
+    # Scheduled posts
+    if tab == "scheduled":
+        cols = [ui.DataColumn("title", "Title",     sortable=True),
+                ui.DataColumn("date",  "Scheduled", sortable=True)]
+        rows = [{"title": wp_title(it),
+                 "date": (it.get("date", "") or "")[:16].replace("T", " ")} for it in items]
+        return ui.DataTable(columns=cols, rows=rows)
 
-    elif tab == "users":
+    # Users
+    if tab == "users":
         cols = [ui.DataColumn("name",       "Name",       sortable=True),
                 ui.DataColumn("role",        "Role",       sortable=True),
                 ui.DataColumn("registered",  "Registered", sortable=True)]
-        rows = [
-            {
-                "name":       it.get("name", ""),
-                "role":       ", ".join(it.get("roles", [])),
-                "registered": (it.get("registered_date", "") or "")[:10],
-            }
-            for it in items
-        ]
+        rows = [{"name": it.get("name", ""), "role": ", ".join(it.get("roles", [])),
+                 "registered": (it.get("registered_date", "") or "")[:10]} for it in items]
+        return ui.DataTable(columns=cols, rows=rows)
 
-    elif tab == "orders":
+    # WooCommerce orders
+    if tab == "orders":
         cols = [ui.DataColumn("id",     "#",      sortable=True),
                 ui.DataColumn("status", "Status", sortable=True),
                 ui.DataColumn("total",  "Total",  sortable=True),
                 ui.DataColumn("date",   "Date",   sortable=True)]
-        rows = [
-            {
-                "id":     str(it.get("id", "")),
-                "status": it.get("status", ""),
-                "total":  f"{it.get('total', '')} {it.get('currency', '')}".strip(),
-                "date":   (it.get("date_created", "") or "")[:10],
-            }
-            for it in items
-        ]
+        rows = [{"id": str(it.get("id", "")), "status": it.get("status", ""),
+                 "total": f"{it.get('total', '')} {it.get('currency', '')}".strip(),
+                 "date": (it.get("date_created", "") or "")[:10]} for it in items]
+        return ui.DataTable(columns=cols, rows=rows)
 
-    else:  # posts, pages
-        cols = [ui.DataColumn("title",  "Title",  sortable=True),
-                ui.DataColumn("status", "Status", sortable=True),
-                ui.DataColumn("date",   "Date",   sortable=True)]
-        rows = [{"title": wp_title(it), "status": it.get("status", ""),
-                 "date": (it.get("date", "") or "")[:10]}
-                for it in items]
-
+    # Posts, pages, custom post types (cpt:*)
+    cols = [ui.DataColumn("title",  "Title",  sortable=True),
+            ui.DataColumn("status", "Status", sortable=True),
+            ui.DataColumn("date",   "Date",   sortable=True)]
+    rows = [{"title": wp_title(it), "status": it.get("status", ""),
+             "date": (it.get("date", "") or "")[:10]} for it in items]
     return ui.DataTable(columns=cols, rows=rows)
 
 
@@ -207,7 +210,8 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     username = record.get("username", "")
     name = urlparse(base_url).netloc or record.get("name", site_id)
 
-    async def _get(path, params=None):
+    async def _list(path, params=None):
+        """Fetch a list endpoint; returns list or None on error."""
         try:
             r = await wp_get(ctx, base_url, path, username=username, app_password=pw,
                              params=params or {"per_page": 20})
@@ -215,13 +219,21 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         except Exception:
             return None
 
-    async def _get_orders():
+    async def _dict(path):
+        """Fetch a dict endpoint (types, taxonomies); returns dict or {}."""
+        try:
+            r = await wp_get(ctx, base_url, path, username=username, app_password=pw)
+            return r.body if r.status_code == 200 and isinstance(r.body, dict) else {}
+        except Exception:
+            return {}
+
+    async def _orders():
         try:
             r = await wp_get(ctx, base_url, "/wp-json/wc/v3/orders",
                              username=username, app_password=pw,
                              params={"per_page": 20, "orderby": "date", "order": "desc"})
             if r.status_code in (404, 401, 403):
-                return None  # WC not installed or no permission
+                return None
             return r.body if r.status_code == 200 and isinstance(r.body, list) else None
         except Exception:
             return None
@@ -230,7 +242,6 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     reachable = record.get("status") == "connected"
     ssl_valid = base_url.startswith("https://")
 
-    # Serve from cache; fetch all in parallel on first load.
     cached = await storage.get_content_cache(ctx, site_id)
     if cached:
         posts_data     = cached.get("posts")
@@ -240,34 +251,88 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         scheduled_data = cached.get("scheduled")
         users_data     = cached.get("users")
         orders_data    = cached.get("orders")
+        dynamic        = cached.get("dynamic", {})
     else:
-        (posts_data, pages_data, media_data,
-         comments_data, scheduled_data, users_data, orders_data) = await asyncio.gather(
-            _get("/wp-json/wp/v2/posts"),
-            _get("/wp-json/wp/v2/pages"),
-            _get("/wp-json/wp/v2/media"),
-            _get("/wp-json/wp/v2/comments",
-                 {"per_page": 20, "orderby": "date", "order": "desc"}),
-            _get("/wp-json/wp/v2/posts",
-                 {"per_page": 20, "status": "future", "orderby": "date", "order": "asc"}),
-            _get("/wp-json/wp/v2/users",
-                 {"per_page": 20, "orderby": "registered", "order": "desc"}),
-            _get_orders(),
+        # Discover custom post types and taxonomies first
+        types_dict, taxes_dict = await asyncio.gather(
+            _dict("/wp-json/wp/v2/types"),
+            _dict("/wp-json/wp/v2/taxonomies"),
         )
+
+        custom_cpts = {
+            slug: info for slug, info in types_dict.items()
+            if slug not in _BUILTIN_TYPES and info.get("rest_base")
+        }
+        custom_taxes = {
+            slug: info for slug, info in taxes_dict.items()
+            if slug not in _BUILTIN_TAXES and info.get("rest_base")
+        }
+
+        # Fetch everything in parallel
+        standard_tasks = [
+            _list("/wp-json/wp/v2/posts"),
+            _list("/wp-json/wp/v2/pages"),
+            _list("/wp-json/wp/v2/media"),
+            _list("/wp-json/wp/v2/comments",
+                  {"per_page": 20, "orderby": "date", "order": "desc"}),
+            _list("/wp-json/wp/v2/posts",
+                  {"per_page": 20, "status": "future", "orderby": "date", "order": "asc"}),
+            _list("/wp-json/wp/v2/users",
+                  {"per_page": 20, "orderby": "registered", "order": "desc"}),
+            _orders(),
+        ]
+        cpt_slugs = list(custom_cpts.keys())
+        cpt_tasks = [_list(f"/wp-json/wp/v2/{custom_cpts[s]['rest_base']}") for s in cpt_slugs]
+        tax_slugs = list(custom_taxes.keys())
+        tax_tasks = [_list(f"/wp-json/wp/v2/{custom_taxes[s]['rest_base']}",
+                           {"per_page": 50, "orderby": "count", "order": "desc"})
+                     for s in tax_slugs]
+
+        results = await asyncio.gather(*standard_tasks, *cpt_tasks, *tax_tasks)
+
+        (posts_data, pages_data, media_data,
+         comments_data, scheduled_data, users_data, orders_data) = results[:7]
+
+        cpt_results = results[7:7 + len(cpt_slugs)]
+        tax_results = results[7 + len(cpt_slugs):]
+
+        dynamic = {
+            "_cpt_meta": {s: {"name": custom_cpts[s].get("name", s),
+                               "rest_base": custom_cpts[s].get("rest_base")}
+                          for s in cpt_slugs},
+            "_tax_meta": {s: {"name": custom_taxes[s].get("name", s),
+                               "rest_base": custom_taxes[s].get("rest_base")}
+                          for s in tax_slugs},
+        }
+        for slug, items in zip(cpt_slugs, cpt_results):
+            dynamic[f"cpt:{slug}"] = items or []
+        for slug, items in zip(tax_slugs, tax_results):
+            dynamic[f"tax:{slug}"] = items or []
+
         await storage.set_content_cache(
             ctx, site_id,
             posts=posts_data, pages=pages_data, media=media_data,
             comments=comments_data, scheduled=scheduled_data,
             users=users_data, orders=orders_data,
+            dynamic=dynamic,
         )
 
+    # Build content map
     content_map = {
         "posts": posts_data, "pages": pages_data, "media": media_data,
         "comments": comments_data, "scheduled": scheduled_data,
         "users": users_data, "orders": orders_data,
     }
+    cpt_meta = dynamic.get("_cpt_meta", {})
+    tax_meta = dynamic.get("_tax_meta", {})
+    for slug in cpt_meta:
+        content_map[f"cpt:{slug}"] = dynamic.get(f"cpt:{slug}")
+    for slug in tax_meta:
+        content_map[f"tax:{slug}"] = dynamic.get(f"tax:{slug}")
+
     items = content_map.get(active_tab)
 
+    # ── Health stats ──
     health_stats = ui.Stats(columns=3, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",
                 color="green" if reachable else "red"),
@@ -277,7 +342,8 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
                 color="green" if ssl_valid else "red"),
     ])
 
-    def _tab_btn(label, key):
+    # ── Tab bar ──
+    def _btn(label, key):
         return ui.Button(
             label,
             variant="secondary" if active_tab == key else "ghost",
@@ -285,17 +351,19 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
             on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
         )
 
-    tabs = ["posts", "pages", "media", "comments", "scheduled", "users"]
-    if orders_data is not None:  # only show Orders tab if WooCommerce is installed
-        tabs.append("orders")
+    tab_defs = [
+        ("Posts", "posts"), ("Pages", "pages"), ("Media", "media"),
+        ("Comments", "comments"), ("Scheduled", "scheduled"), ("Users", "users"),
+    ]
+    if orders_data is not None:
+        tab_defs.append(("Orders", "orders"))
+    for slug, meta in cpt_meta.items():
+        tab_defs.append((meta["name"], f"cpt:{slug}"))
+    for slug, meta in tax_meta.items():
+        tab_defs.append((meta["name"], f"tax:{slug}"))
 
-    tab_labels = {
-        "posts": "Posts", "pages": "Pages", "media": "Media",
-        "comments": "Comments", "scheduled": "Scheduled",
-        "users": "Users", "orders": "Orders",
-    }
     tab_bar = ui.Stack(
-        children=[_tab_btn(tab_labels[k], k) for k in tabs],
+        children=[_btn(label, key) for label, key in tab_defs],
         direction="h", gap=1, sticky=True,
     )
 
