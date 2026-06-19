@@ -106,20 +106,20 @@ async def test_sidebar_shows_domain_not_name():
     assert "x.com" in s
 
 
-async def test_sidebar_connected_badge_green():
+async def test_sidebar_connected_lamp_green():
     ctx = await _ctx_with_sites(
         {"id": "x-com", "name": "X", "url": "https://x.com", "status": "connected"},
     )
     node = await panels.sidebar(ctx)
-    assert "green" in str(node)
+    assert "#22c55e" in str(node)  # green lamp color
 
 
-async def test_sidebar_error_badge_red():
+async def test_sidebar_error_lamp_red():
     ctx = await _ctx_with_sites(
         {"id": "x-com", "name": "X", "url": "https://x.com", "status": "error"},
     )
     node = await panels.sidebar(ctx)
-    assert "red" in str(node)
+    assert "#ef4444" in str(node)  # red lamp color
 
 
 # ── center panel ──────────────────────────────────────────────────────────────
