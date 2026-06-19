@@ -178,7 +178,7 @@ def _field(label, help_text, input_node):
     ])
 
 
-@ext.panel("connect_form", slot="center", center_overlay=True, title="Connect a WordPress site")
+@ext.panel("connect_form", slot="center", title="Connect a WordPress site")
 async def connect_form(ctx, **kwargs):
     """Center overlay: connection form. Captures URL + username + Application Password."""
     return ui.Stack(children=[
