@@ -71,12 +71,17 @@ async def get_content_cache(ctx, site_id):
     return doc.data if doc else None
 
 
-async def set_content_cache(ctx, site_id, posts, pages, media):
+async def set_content_cache(ctx, site_id, posts=None, pages=None, media=None,
+                            comments=None, scheduled=None, users=None, orders=None):
     data = {
-        "site_id": site_id,
-        "posts":   posts or [],
-        "pages":   pages or [],
-        "media":   media or [],
+        "site_id":   site_id,
+        "posts":     posts or [],
+        "pages":     pages or [],
+        "media":     media or [],
+        "comments":  comments or [],
+        "scheduled": scheduled or [],
+        "users":     users or [],
+        "orders":    orders,  # None = WC not installed; [] = installed but no orders
     }
     doc = await _find_doc(ctx, CACHE_COLLECTION, site_id)
     if doc:

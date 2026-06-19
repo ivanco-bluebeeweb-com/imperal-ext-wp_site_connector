@@ -16,19 +16,27 @@ import storage
     default_width=280,
     min_width=200,
     max_width=400,
-    refresh="on_event:wp-site-connector.connect_site,wp-site-connector.forget_site,wp-site-connector.refresh_site",
+    refresh="on_event:wp-site-connector.connect_site,wp-site-connector.forget_site,wp-site-connector.refresh_site,wp-site-connector.refresh_all_sites",
 )
 async def sidebar(ctx, active_site_id="", **kwargs):
-    """Left panel: Connect Site button + divider + list of connected sites."""
+    """Left panel: Connect Site + Refresh All buttons, divider, site list."""
     rows = await storage.list_site_records(ctx)
 
-    connect_btn = ui.Button(
-        "Connect Site",
-        icon="Plus",
-        variant="primary",
-        full_width=True,
-        on_click=ui.Call("__panel__center", view="connect", site_id=""),
-    )
+    top_bar = ui.Stack(direction="h", gap=2, children=[
+        ui.Button(
+            "Connect Site",
+            icon="Plus",
+            variant="primary",
+            on_click=ui.Call("__panel__center", view="connect", site_id=""),
+        ),
+        ui.Button(
+            "Refresh All",
+            icon="RefreshCw",
+            variant="secondary",
+            disabled=not rows,
+            on_click=ui.Call("refresh_all_sites"),
+        ),
+    ])
 
     if not rows:
         site_list = ui.Empty(message="No sites connected yet.")
@@ -53,7 +61,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
         ]
         site_list = ui.List(items=items)
 
-    root = ui.Stack(children=[connect_btn, ui.Divider(), site_list], gap=3)
+    root = ui.Stack(children=[top_bar, ui.Divider(), site_list], gap=3)
 
     if not active_site_id and rows:
         root.props["auto_action"] = ui.Call(
@@ -63,7 +71,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
     return root
 
 
-# ── Single center panel — branches on `view` and `active_tab` kwargs ──────────
+# ── Single center panel ────────────────────────────────────────────────────────
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
 async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
@@ -97,47 +105,94 @@ def _render_connect_form():
                    "Create this under Users → Profile → Application Passwords in WordPress",
                    ui.Password(param_name="app_password")),
         ]),
-        ui.Button(
-            "Cancel",
-            variant="ghost",
-            on_click=ui.Call("__panel__center", view="", site_id=""),
-        ),
+        ui.Button("Cancel", variant="ghost",
+                  on_click=ui.Call("__panel__center", view="", site_id="")),
     ], gap=4)
 
 
-# ── Site detail with manual tab switching ─────────────────────────────────────
-
+# ── Content tables ────────────────────────────────────────────────────────────
 
 def _render_content_table(items, tab):
     if items is None:
+        if tab == "orders":
+            return ui.Alert(message="WooCommerce not installed or insufficient permissions.",
+                            type="info")
         return ui.Alert(message="Could not load — check the connection.", type="error")
     if not items:
-        return ui.Empty(message=f"No {tab} found.")
+        labels = {
+            "posts": "posts", "pages": "pages", "media": "media files",
+            "comments": "comments", "scheduled": "scheduled posts",
+            "users": "users", "orders": "orders",
+        }
+        return ui.Empty(message=f"No {labels.get(tab, tab)} found.")
+
     if tab == "media":
-        columns = [
-            ui.DataColumn("title",     "Title", sortable=True),
-            ui.DataColumn("mime_type", "Type",  sortable=True),
-        ]
-        rows = [
-            {"title": wp_title(it), "mime_type": it.get("mime_type", "")}
-            for it in items
-        ]
-    else:
-        columns = [
-            ui.DataColumn("title",  "Title",  sortable=True),
-            ui.DataColumn("status", "Status", sortable=True),
-            ui.DataColumn("date",   "Date",   sortable=True),
-        ]
+        cols = [ui.DataColumn("title", "Title", sortable=True),
+                ui.DataColumn("type",  "Type",  sortable=True)]
+        rows = [{"title": wp_title(it), "type": it.get("mime_type", "")} for it in items]
+
+    elif tab == "comments":
+        cols = [ui.DataColumn("author",  "Author",  sortable=True),
+                ui.DataColumn("snippet", "Comment", sortable=False),
+                ui.DataColumn("status",  "Status",  sortable=True),
+                ui.DataColumn("date",    "Date",    sortable=True)]
         rows = [
             {
-                "title":  wp_title(it),
-                "status": it.get("status", ""),
-                "date":   (it.get("date", "") or "")[:10],
+                "author":  it.get("author_name", ""),
+                "snippet": (it.get("content", {}).get("rendered", "") or "")
+                           .replace("<p>", "").replace("</p>", "")[:60],
+                "status":  it.get("status", ""),
+                "date":    (it.get("date", "") or "")[:10],
             }
             for it in items
         ]
-    return ui.DataTable(columns=columns, rows=rows)
 
+    elif tab == "scheduled":
+        cols = [ui.DataColumn("title",  "Title",    sortable=True),
+                ui.DataColumn("date",   "Scheduled", sortable=True)]
+        rows = [{"title": wp_title(it), "date": (it.get("date", "") or "")[:16].replace("T", " ")}
+                for it in items]
+
+    elif tab == "users":
+        cols = [ui.DataColumn("name",       "Name",       sortable=True),
+                ui.DataColumn("role",        "Role",       sortable=True),
+                ui.DataColumn("registered",  "Registered", sortable=True)]
+        rows = [
+            {
+                "name":       it.get("name", ""),
+                "role":       ", ".join(it.get("roles", [])),
+                "registered": (it.get("registered_date", "") or "")[:10],
+            }
+            for it in items
+        ]
+
+    elif tab == "orders":
+        cols = [ui.DataColumn("id",     "#",      sortable=True),
+                ui.DataColumn("status", "Status", sortable=True),
+                ui.DataColumn("total",  "Total",  sortable=True),
+                ui.DataColumn("date",   "Date",   sortable=True)]
+        rows = [
+            {
+                "id":     str(it.get("id", "")),
+                "status": it.get("status", ""),
+                "total":  f"{it.get('total', '')} {it.get('currency', '')}".strip(),
+                "date":   (it.get("date_created", "") or "")[:10],
+            }
+            for it in items
+        ]
+
+    else:  # posts, pages
+        cols = [ui.DataColumn("title",  "Title",  sortable=True),
+                ui.DataColumn("status", "Status", sortable=True),
+                ui.DataColumn("date",   "Date",   sortable=True)]
+        rows = [{"title": wp_title(it), "status": it.get("status", ""),
+                 "date": (it.get("date", "") or "")[:10]}
+                for it in items]
+
+    return ui.DataTable(columns=cols, rows=rows)
+
+
+# ── Site detail ───────────────────────────────────────────────────────────────
 
 async def _render_detail(ctx, site_id, active_tab="posts"):
     record = await storage.get_site_record(ctx, site_id) or {}
@@ -152,45 +207,72 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     username = record.get("username", "")
     name = urlparse(base_url).netloc or record.get("name", site_id)
 
-    async def _get(path, per_page):
+    async def _get(path, params=None):
         try:
-            return await wp_get(ctx, base_url, path, username=username, app_password=pw,
-                                params={"per_page": per_page})
+            r = await wp_get(ctx, base_url, path, username=username, app_password=pw,
+                             params=params or {"per_page": 20})
+            return r.body if r.status_code == 200 and isinstance(r.body, list) else None
         except Exception:
             return None
 
-    def _body(r):
-        return r.body if r and r.status_code == 200 and isinstance(r.body, list) else None
+    async def _get_orders():
+        try:
+            r = await wp_get(ctx, base_url, "/wp-json/wc/v3/orders",
+                             username=username, app_password=pw,
+                             params={"per_page": 20, "orderby": "date", "order": "desc"})
+            if r.status_code in (404, 401, 403):
+                return None  # WC not installed or no permission
+            return r.body if r.status_code == 200 and isinstance(r.body, list) else None
+        except Exception:
+            return None
 
-    # Health stats come from the stored record (updated by the Refresh button).
+    # Health from stored record; updated by Refresh button.
     reachable = record.get("status") == "connected"
-    auth_ok = reachable
     ssl_valid = base_url.startswith("https://")
 
-    # Content: serve from cache on tab switch; fetch all in parallel on first load.
+    # Serve from cache; fetch all in parallel on first load.
     cached = await storage.get_content_cache(ctx, site_id)
     if cached:
-        posts_data = cached.get("posts")
-        pages_data = cached.get("pages")
-        media_data = cached.get("media")
+        posts_data     = cached.get("posts")
+        pages_data     = cached.get("pages")
+        media_data     = cached.get("media")
+        comments_data  = cached.get("comments")
+        scheduled_data = cached.get("scheduled")
+        users_data     = cached.get("users")
+        orders_data    = cached.get("orders")
     else:
-        posts_r, pages_r, media_r = await asyncio.gather(
-            _get("/wp-json/wp/v2/posts", 20),
-            _get("/wp-json/wp/v2/pages", 20),
-            _get("/wp-json/wp/v2/media", 20),
+        (posts_data, pages_data, media_data,
+         comments_data, scheduled_data, users_data, orders_data) = await asyncio.gather(
+            _get("/wp-json/wp/v2/posts"),
+            _get("/wp-json/wp/v2/pages"),
+            _get("/wp-json/wp/v2/media"),
+            _get("/wp-json/wp/v2/comments",
+                 {"per_page": 20, "orderby": "date", "order": "desc"}),
+            _get("/wp-json/wp/v2/posts",
+                 {"per_page": 20, "status": "future", "orderby": "date", "order": "asc"}),
+            _get("/wp-json/wp/v2/users",
+                 {"per_page": 20, "orderby": "registered", "order": "desc"}),
+            _get_orders(),
         )
-        posts_data = _body(posts_r)
-        pages_data = _body(pages_r)
-        media_data = _body(media_r)
-        await storage.set_content_cache(ctx, site_id, posts_data, pages_data, media_data)
+        await storage.set_content_cache(
+            ctx, site_id,
+            posts=posts_data, pages=pages_data, media=media_data,
+            comments=comments_data, scheduled=scheduled_data,
+            users=users_data, orders=orders_data,
+        )
 
-    items = {"posts": posts_data, "pages": pages_data, "media": media_data}.get(active_tab)
+    content_map = {
+        "posts": posts_data, "pages": pages_data, "media": media_data,
+        "comments": comments_data, "scheduled": scheduled_data,
+        "users": users_data, "orders": orders_data,
+    }
+    items = content_map.get(active_tab)
 
     health_stats = ui.Stats(columns=3, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",
                 color="green" if reachable else "red"),
-        ui.Stat(label="Auth",      value="OK" if auth_ok else "Failed",
-                color="green" if auth_ok else "red"),
+        ui.Stat(label="Auth",      value="OK" if reachable else "Failed",
+                color="green" if reachable else "red"),
         ui.Stat(label="SSL",       value="HTTPS" if ssl_valid else "HTTP",
                 color="green" if ssl_valid else "red"),
     ])
@@ -203,8 +285,17 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
             on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
         )
 
+    tabs = ["posts", "pages", "media", "comments", "scheduled", "users"]
+    if orders_data is not None:  # only show Orders tab if WooCommerce is installed
+        tabs.append("orders")
+
+    tab_labels = {
+        "posts": "Posts", "pages": "Pages", "media": "Media",
+        "comments": "Comments", "scheduled": "Scheduled",
+        "users": "Users", "orders": "Orders",
+    }
     tab_bar = ui.Stack(
-        children=[_tab_btn("Posts", "posts"), _tab_btn("Pages", "pages"), _tab_btn("Media", "media")],
+        children=[_tab_btn(tab_labels[k], k) for k in tabs],
         direction="h", gap=1, sticky=True,
     )
 

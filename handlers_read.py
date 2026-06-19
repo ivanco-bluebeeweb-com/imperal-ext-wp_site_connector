@@ -3,7 +3,7 @@ import asyncio
 from imperal_sdk import ActionResult, sdl
 from app import chat
 from models import (_NoParams, Site, ListContentParams, ListMediaParams,
-                    Post, Page, MediaItem, SiteIdParams, SiteHealth)
+                    Post, Page, MediaItem, SiteIdParams, SiteHealth, RefreshAllResult)
 from wp_client import wp_get, wp_error_message, wp_title, now_iso
 import storage
 
@@ -157,6 +157,7 @@ async def refresh_site(ctx, params: SiteIdParams) -> ActionResult:
     record = await storage.get_site_record(ctx, params.site_id) or {}
     await storage.save_site_record(ctx, {**record, "status": status, "last_checked": now_iso()})
     await storage.clear_content_cache(ctx, params.site_id)
+
     name = record.get("name", params.site_id)
     site = Site(id=params.site_id, title=name, kind="wp_site",
                 url=base_url, username=username, status=status)
@@ -165,4 +166,51 @@ async def refresh_site(ctx, params: SiteIdParams) -> ActionResult:
         site,
         summary=f"{icon} {name}: {status}",
         refresh_panels=["sidebar", "center"],
+    )
+
+
+@chat.function(
+    "refresh_all_sites",
+    description="Re-check connectivity for all connected WordPress sites at once.",
+    action_type="write",
+    data_model=RefreshAllResult,
+    effects=["wp.health_check"],
+    event="wp-site-connector.refresh_all_sites",
+)
+async def refresh_all_sites(ctx, params: _NoParams) -> ActionResult:
+    """Ping every connected site in parallel, update stored statuses, clear content caches."""
+    rows = await storage.list_site_records(ctx)
+    if not rows:
+        return ActionResult.error("No sites connected.", retryable=False)
+
+    async def _check(record):
+        site_id = record["id"]
+        auth, err = await _authed(ctx, site_id)
+        if err:
+            updated = {**record, "status": "error", "last_checked": now_iso()}
+        else:
+            base_url, username, pw = auth
+            try:
+                r = await wp_get(ctx, base_url, "/wp-json/wp/v2/users/me",
+                                 username=username, app_password=pw)
+                status = "connected" if 200 <= r.status_code < 300 else "error"
+            except Exception:
+                status = "error"
+            updated = {**record, "status": status, "last_checked": now_iso()}
+        await storage.save_site_record(ctx, updated)
+        await storage.clear_content_cache(ctx, site_id)
+        return updated
+
+    results = await asyncio.gather(*[_check(r) for r in rows])
+    connected = sum(1 for r in results if r.get("status") == "connected")
+    total = len(results)
+    result = RefreshAllResult(
+        id="refresh_all", title=f"{connected}/{total} sites connected",
+        kind="refresh_all", connected=connected, total=total,
+    )
+    icon = "✅" if connected == total else ("⚠️" if connected > 0 else "❌")
+    return ActionResult.success(
+        result,
+        summary=f"{icon} {connected}/{total} sites connected",
+        refresh_panels=["sidebar"],
     )

@@ -49,6 +49,11 @@ class MediaItem(sdl.Entity):
     mime_type: str = ""
 
 
+class RefreshAllResult(sdl.Entity):
+    connected: int = 0
+    total: int = 0
+
+
 class SiteHealth(sdl.Entity):
     reachable: bool = False
     auth_ok: bool = False
