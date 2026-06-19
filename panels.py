@@ -43,20 +43,29 @@ def _site_badge_color(r: dict) -> str:
 
 
 def _lamp(r: dict) -> ui.Html:
-    """8×8 solid dot with glow — status indicator on the left of the site name."""
-    color_map = {
-        "green":  ("#22c55e", "#22c55e"),
-        "yellow": ("#f59e0b", "#f59e0b"),
-        "red":    ("#ef4444", "#ef4444"),
-    }
+    """8×8 pulsing dot — slow breath for green, intense for yellow/red."""
     key = _site_badge_color(r)
-    fill, shadow = color_map.get(key, ("#22c55e", "#22c55e"))
-    html = (
-        f'<body style="margin:0;padding:0;background:transparent;display:flex;align-items:center;height:100%">'
-        f'<div style="width:8px;height:8px;border-radius:50%;background:{fill};'
-        f'box-shadow:0 0 5px 2px {shadow}88;flex-shrink:0"></div>'
-        f'</body>'
-    )
+
+    cfg = {
+        "green":  ("#22c55e", "4.5s", "0.85", "1.12", "8px 3px",  "12px 6px"),
+        "yellow": ("#f59e0b", "1.4s", "0.70", "1.22", "10px 4px", "16px 8px"),
+        "red":    ("#ef4444", "0.9s", "0.65", "1.28", "10px 4px", "18px 9px"),
+    }
+    fill, dur, op0, sc1, sh0, sh1 = cfg.get(key, cfg["green"])
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+@keyframes pulse {{
+  0%,100% {{ opacity:{op0}; transform:scale(1);    box-shadow:0 0 {sh0} {fill}66; }}
+  50%      {{ opacity:1;    transform:scale({sc1}); box-shadow:0 0 {sh1} {fill}99; }}
+}}
+body {{ margin:0;padding:0;background:transparent;
+        display:flex;align-items:center;height:100%;overflow:hidden }}
+.dot {{ width:8px;height:8px;border-radius:50%;background:{fill};flex-shrink:0;
+        animation:pulse {dur} ease-in-out infinite }}
+</style></head>
+<body><div class="dot"></div></body></html>"""
+
     return ui.Html(content=html, sandbox=False, max_height=20, theme="dark")
 
 
