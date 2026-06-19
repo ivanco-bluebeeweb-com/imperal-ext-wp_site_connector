@@ -297,11 +297,13 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
             on_click=ui.Call("get_server_info", site_id=site_id),
         )
 
+        ssh_error = record.get("ssh_error", "")
         if not wp_ver:
+            msg = ssh_error if ssh_error else "No server data yet."
             server_section_children = [
                 ui.Divider(label="Server"),
                 ui.Stack(direction="h", align="center", gap=3, children=[
-                    ui.Text("No server data yet."),
+                    ui.Text(msg),
                     refresh_server_btn,
                 ]),
             ]

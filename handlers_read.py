@@ -370,8 +370,10 @@ async def list_custom_posts(ctx, params: ListCustomPostsParams) -> ActionResult:
 @chat.function(
     "get_server_info",
     description="Get server information for a WordPress site via SSH + WP-CLI: PHP version, WordPress version, available plugin/theme/core updates, cron job count, database size. SSH must be configured first with add_ssh.",
-    action_type="read",
+    action_type="write",
     data_model=ServerInfo,
+    effects=["wp.health_check"],
+    event="wp-site-connector.get_server_info",
 )
 async def get_server_info(ctx, params: SiteIdParams) -> ActionResult:
     """Run WP-CLI commands via SSH and return server/site diagnostics."""
@@ -387,7 +389,9 @@ async def get_server_info(ctx, params: SiteIdParams) -> ActionResult:
         return ActionResult.error("SSH connection failed — check credentials.", retryable=True)
 
     if "error" in info:
-        return ActionResult.error(f"WP-CLI error: {info['error']}", retryable=True)
+        await storage.save_site_record(ctx, {**record, "ssh_error": info["error"]})
+        return ActionResult.error(f"SSH/WP-CLI error: {info['error']}", retryable=True,
+                                  refresh_panels=["center"])
 
     result = ServerInfo(
         id=params.site_id,
@@ -406,8 +410,13 @@ async def get_server_info(ctx, params: SiteIdParams) -> ActionResult:
     )
     updates = result.plugin_updates + result.theme_updates + (1 if result.core_update else 0)
 
-    # Persist server metrics to site record so sidebar and panel can display them
-    # without re-running SSH on every panel open.
+    # Only persist if we actually got real data (SSH succeeded)
+    if not result.wp_version:
+        return ActionResult.error(
+            "SSH connected but WP-CLI returned no data — check the WordPress path and WP-CLI installation.",
+            retryable=True,
+        )
+
     await storage.save_site_record(ctx, {
         **record,
         "wp_version":          result.wp_version,

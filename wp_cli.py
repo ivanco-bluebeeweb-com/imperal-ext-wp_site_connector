@@ -51,11 +51,16 @@ def _ssh_cmd(host: str, port: int, user: str, key_path: str | None, remote_cmd: 
 
 async def _run(host, port, user, key_path, remote_cmd, timeout=_CMD_TIMEOUT) -> tuple[str | None, str | None]:
     """Run one remote command. Returns (stdout, error_message)."""
-    proc = await asyncio.create_subprocess_exec(
-        *_ssh_cmd(host, port, user, key_path, remote_cmd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *_ssh_cmd(host, port, user, key_path, remote_cmd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return None, "ssh binary not found — the server environment does not have ssh installed"
+    except Exception as e:
+        return None, f"subprocess error: {e}"
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:

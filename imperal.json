@@ -2580,9 +2580,11 @@
     {
       "name": "get_server_info",
       "description": "Get server information for a WordPress site via SSH + WP-CLI: PHP version, WordPress version, available plugin/theme/core updates, cron job count, database size. SSH must be configured first with add_ssh.",
-      "action_type": "read",
+      "action_type": "write",
       "chain_callable": true,
-      "effects": [],
+      "effects": [
+        "wp.health_check"
+      ],
       "id_projection": "",
       "params_schema": {
         "properties": {
@@ -2727,7 +2729,7 @@
         "type": "object",
         "x-sdl": "entity"
       },
-      "event": "",
+      "event": "wp-site-connector.get_server_info",
       "background": false,
       "long_running": false,
       "scopes": [],
