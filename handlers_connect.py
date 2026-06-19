@@ -91,6 +91,9 @@ async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
 )
 async def add_ssh(ctx, params: AddSSHParams) -> ActionResult:
     """Validate SSH connection + WP-CLI, then store credentials."""
+    site_id = params.site_id or await storage.get_pending_ssh_site(ctx)
+    if not site_id:
+        return ActionResult.error("Could not determine which site to connect — open Add SSH from the site panel.", retryable=False)
     if not params.ssh_key and not params.ssh_password:
         return ActionResult.error("Provide either ssh_key or ssh_password.", retryable=False)
 
@@ -109,11 +112,11 @@ async def add_ssh(ctx, params: AddSSHParams) -> ActionResult:
     if not ok:
         return ActionResult.error(f"SSH connection failed: {msg}", retryable=True)
 
-    await storage.set_ssh_cred(ctx, params.site_id, cred)
-    await storage.clear_content_cache(ctx, params.site_id)
+    await storage.set_ssh_cred(ctx, site_id, cred)
+    await storage.clear_content_cache(ctx, site_id)
 
-    record = await storage.get_site_record(ctx, params.site_id) or {}
-    site = Site(id=params.site_id, title=record.get("name", params.site_id),
+    record = await storage.get_site_record(ctx, site_id) or {}
+    site = Site(id=site_id, title=record.get("name", site_id),
                 kind="wp_site", url=record.get("url", ""),
                 username=record.get("username", ""), status="connected")
     return ActionResult.success(

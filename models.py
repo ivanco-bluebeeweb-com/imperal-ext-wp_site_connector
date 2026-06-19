@@ -30,7 +30,7 @@ class _NoParams(BaseModel):
 
 
 class AddSSHParams(BaseModel):
-    site_id: str = Field(description="Site id from a previous list_sites call — never invent it")
+    site_id: str = Field(default="", description="Site id — set automatically by the panel form")
     ssh_host: str = Field(description="SSH hostname or IP address of the server")
     ssh_port: int = Field(default=22, description="SSH port (default 22)")
     ssh_user: str = Field(description="SSH username")

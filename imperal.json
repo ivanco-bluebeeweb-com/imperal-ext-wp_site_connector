@@ -290,7 +290,8 @@
       "params_schema": {
         "properties": {
           "site_id": {
-            "description": "Site id from a previous list_sites call — never invent it",
+            "default": "",
+            "description": "Site id — set automatically by the panel form",
             "title": "Site Id",
             "type": "string"
           },
@@ -329,7 +330,6 @@
           }
         },
         "required": [
-          "site_id",
           "ssh_host",
           "ssh_user",
           "wp_path"

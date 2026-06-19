@@ -93,6 +93,22 @@ async def set_content_cache(ctx, site_id, posts=None, pages=None, media=None,
         await ctx.store.create(CACHE_COLLECTION, data)
 
 
+PENDING_SSH_COLLECTION = "pending_ssh"
+
+
+async def set_pending_ssh_site(ctx, site_id):
+    page = await ctx.store.query(PENDING_SSH_COLLECTION, limit=1)
+    if page.data:
+        await ctx.store.update(PENDING_SSH_COLLECTION, page.data[0].id, {"site_id": site_id})
+    else:
+        await ctx.store.create(PENDING_SSH_COLLECTION, {"site_id": site_id})
+
+
+async def get_pending_ssh_site(ctx) -> str:
+    page = await ctx.store.query(PENDING_SSH_COLLECTION, limit=1)
+    return page.data[0].data.get("site_id", "") if page.data else ""
+
+
 async def get_ssh_cred(ctx, site_id):
     doc = await _find_doc(ctx, SSH_CREDS_COLLECTION, site_id)
     return doc.data if doc else None

@@ -88,6 +88,7 @@ async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
     if view == "connect":
         return _render_connect_form()
     if view == "add_ssh" and site_id:
+        await storage.set_pending_ssh_site(ctx, site_id)
         return _render_add_ssh_form(site_id)
     if site_id:
         return await _render_detail(ctx, site_id, active_tab)
@@ -106,8 +107,6 @@ def _field(label, help_text, input_node):
 def _render_add_ssh_form(site_id):
     return ui.Stack(children=[
         ui.Form(action="add_ssh", submit_label="Connect via SSH", children=[
-            _field("Site", "Site you are adding SSH access to (do not change)",
-                   ui.Input(param_name="site_id", value=site_id)),
             _field("SSH Host",
                    "Hostname or IP address of the server, e.g. mysite.com or 192.168.1.1",
                    ui.Input(param_name="ssh_host", placeholder="mysite.com")),
