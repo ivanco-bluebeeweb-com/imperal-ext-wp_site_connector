@@ -220,10 +220,17 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
             return None
 
     async def _dict(path):
-        """Fetch a dict endpoint (types, taxonomies); returns dict or {}."""
+        """Fetch a dict endpoint (types, taxonomies); returns dict or {}.
+        Uses r.json() — r.body is only parsed for list endpoints in this SDK."""
         try:
             r = await wp_get(ctx, base_url, path, username=username, app_password=pw)
-            return r.body if r.status_code == 200 and isinstance(r.body, dict) else {}
+            if r.status_code != 200:
+                return {}
+            try:
+                data = r.json()
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return r.body if isinstance(r.body, dict) else {}
         except Exception:
             return {}
 
@@ -243,7 +250,10 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     ssl_valid = base_url.startswith("https://")
 
     cached = await storage.get_content_cache(ctx, site_id)
-    if cached:
+    # Treat cache as stale if CPT discovery hasn't run yet (older cache format)
+    cache_needs_discovery = cached is None or "_cpt_meta" not in cached.get("dynamic", {})
+
+    if cached and not cache_needs_discovery:
         posts_data     = cached.get("posts")
         pages_data     = cached.get("pages")
         media_data     = cached.get("media")
@@ -252,6 +262,54 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         users_data     = cached.get("users")
         orders_data    = cached.get("orders")
         dynamic        = cached.get("dynamic", {})
+    elif cached and cache_needs_discovery:
+        # Reuse existing standard data; only re-run CPT/taxonomy discovery
+        posts_data     = cached.get("posts")
+        pages_data     = cached.get("pages")
+        media_data     = cached.get("media")
+        comments_data  = cached.get("comments")
+        scheduled_data = cached.get("scheduled")
+        users_data     = cached.get("users")
+        orders_data    = cached.get("orders")
+
+        types_dict, taxes_dict = await asyncio.gather(
+            _dict("/wp-json/wp/v2/types"),
+            _dict("/wp-json/wp/v2/taxonomies"),
+        )
+        custom_cpts = {s: i for s, i in types_dict.items()
+                       if s not in _BUILTIN_TYPES and i.get("rest_base")}
+        custom_taxes = {s: i for s, i in taxes_dict.items()
+                        if s not in _BUILTIN_TAXES and i.get("rest_base")}
+
+        cpt_slugs = list(custom_cpts.keys())
+        tax_slugs = list(custom_taxes.keys())
+        cpt_results, tax_results = await asyncio.gather(
+            asyncio.gather(*[_list(f"/wp-json/wp/v2/{custom_cpts[s]['rest_base']}") for s in cpt_slugs]),
+            asyncio.gather(*[_list(f"/wp-json/wp/v2/{custom_taxes[s]['rest_base']}",
+                                   {"per_page": 50, "orderby": "count", "order": "desc"})
+                             for s in tax_slugs]),
+        ) if (cpt_slugs or tax_slugs) else ([], [])
+
+        dynamic = {
+            "_cpt_meta": {s: {"name": custom_cpts[s].get("name", s),
+                               "rest_base": custom_cpts[s].get("rest_base")}
+                          for s in cpt_slugs},
+            "_tax_meta": {s: {"name": custom_taxes[s].get("name", s),
+                               "rest_base": custom_taxes[s].get("rest_base")}
+                          for s in tax_slugs},
+        }
+        for slug, items in zip(cpt_slugs, cpt_results):
+            dynamic[f"cpt:{slug}"] = items or []
+        for slug, items in zip(tax_slugs, tax_results):
+            dynamic[f"tax:{slug}"] = items or []
+
+        await storage.set_content_cache(
+            ctx, site_id,
+            posts=posts_data, pages=pages_data, media=media_data,
+            comments=comments_data, scheduled=scheduled_data,
+            users=users_data, orders=orders_data,
+            dynamic=dynamic,
+        )
     else:
         # Discover custom post types and taxonomies first
         types_dict, taxes_dict = await asyncio.gather(
