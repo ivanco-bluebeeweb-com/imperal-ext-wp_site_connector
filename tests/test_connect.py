@@ -1,4 +1,4 @@
-from imperal_sdk.testing import MockContext, MockSecretStore
+from imperal_sdk.testing import MockContext
 import handlers_connect as hc
 import storage
 from models import ConnectSiteParams
@@ -6,7 +6,6 @@ from models import ConnectSiteParams
 
 async def _ctx():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     return ctx
 
 

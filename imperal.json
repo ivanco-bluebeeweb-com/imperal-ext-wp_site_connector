@@ -1261,14 +1261,5 @@
     "health_check": {
       "interval_sec": 60
     }
-  },
-  "secrets": [
-    {
-      "name": "wp_credentials",
-      "description": "JSON map of {site_id: WordPress Application Password} for connected sites.",
-      "required": false,
-      "write_mode": "both",
-      "max_bytes": 16384
-    }
-  ]
+  }
 }

@@ -1,4 +1,4 @@
-from imperal_sdk.testing import MockContext, MockSecretStore
+from imperal_sdk.testing import MockContext
 import app  # noqa: F401 — registers ext/chat
 import panels
 import storage
@@ -6,7 +6,6 @@ import storage
 
 async def _ctx_with_sites(*site_records):
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     for r in site_records:
         await storage.save_site_record(ctx, r)
     return ctx
@@ -157,7 +156,6 @@ async def test_center_connect_form_has_url_and_username():
 
 async def test_center_shows_detail_when_site_id():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     await storage.save_site_record(ctx, {"id": "x-com", "name": "X",
                                          "url": "https://x.com", "username": "admin",
                                          "status": "connected"})
@@ -178,7 +176,6 @@ async def test_center_shows_detail_when_site_id():
 
 async def test_center_detail_shows_alert_on_missing_credential():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     await storage.save_site_record(ctx, {"id": "x-com", "name": "X",
                                          "url": "https://x.com", "username": "admin",
                                          "status": "connected"})

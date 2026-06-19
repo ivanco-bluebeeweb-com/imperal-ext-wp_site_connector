@@ -1,4 +1,4 @@
-from imperal_sdk.testing import MockContext, MockSecretStore
+from imperal_sdk.testing import MockContext
 import app  # noqa: F401
 import handlers_read as hr
 import storage
@@ -7,7 +7,6 @@ from models import ListContentParams, ListMediaParams, SiteIdParams
 
 async def _connected_ctx():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     await storage.save_site_record(ctx, {"id": "x-com", "name": "X", "url": "https://x.com", "username": "admin", "status": "connected"})
     await storage.set_credential(ctx, "x-com", "pw")
     return ctx
@@ -75,6 +74,5 @@ async def test_refresh_site_sets_error_on_401():
 
 async def test_refresh_site_errors_on_missing_site():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     result = await hr.refresh_site(ctx, SiteIdParams(site_id="no-such-site"))
     assert result.status == "error"

@@ -1,4 +1,4 @@
-from imperal_sdk.testing import MockContext, MockSecretStore
+from imperal_sdk.testing import MockContext
 import app  # noqa: F401
 import handlers_read as hr
 import storage
@@ -7,7 +7,6 @@ from models import SiteIdParams
 
 async def _connected_ctx():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     await storage.save_site_record(ctx, {"id": "x-com", "name": "X", "url": "https://x.com", "username": "admin", "status": "connected"})
     await storage.set_credential(ctx, "x-com", "pw")
     return ctx
@@ -28,6 +27,5 @@ async def test_health_reports_available_fields_and_marks_vnext():
 
 async def test_health_unknown_site_errors():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     r = await hr.get_site_health(ctx, SiteIdParams(site_id="nope"))
     assert r.status == "error"

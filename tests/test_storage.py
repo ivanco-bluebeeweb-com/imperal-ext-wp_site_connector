@@ -1,4 +1,4 @@
-from imperal_sdk.testing import MockContext, MockSecretStore
+from imperal_sdk.testing import MockContext
 import storage
 
 
@@ -27,7 +27,6 @@ async def test_get_and_delete_site_record():
 
 async def test_credential_roundtrip_and_delete():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
     await storage.set_credential(ctx, "x-com", "pw-1")
     assert await storage.get_credential(ctx, "x-com") == "pw-1"
     await storage.delete_credential(ctx, "x-com")

@@ -11,15 +11,6 @@ ext = Extension(
 
 chat = ChatExtension(ext, tool_name="wp-site-connector", description="Browse connected WordPress sites")
 
-# Encrypted credential store: one secret holds {site_id: app_password} for all connected sites.
-# write_mode="both" lets the connection-form tool write it via ctx.secrets.set().
-ext.secret(
-    "wp_credentials",
-    "JSON map of {site_id: WordPress Application Password} for connected sites.",
-    write_mode="both",
-    max_bytes=16384,
-)(lambda: None)
-
 
 @ext.health_check
 async def health_check(ctx) -> dict:
