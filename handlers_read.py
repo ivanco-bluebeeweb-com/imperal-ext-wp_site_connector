@@ -405,8 +405,23 @@ async def get_server_info(ctx, params: SiteIdParams) -> ActionResult:
         db_size_mb=info["db_size_mb"],
     )
     updates = result.plugin_updates + result.theme_updates + (1 if result.core_update else 0)
+
+    # Persist server metrics to site record so sidebar and panel can display them
+    # without re-running SSH on every panel open.
+    await storage.save_site_record(ctx, {
+        **record,
+        "wp_version":          result.wp_version,
+        "php_version":         result.php_version,
+        "db_size_mb":          result.db_size_mb,
+        "cron_count":          result.cron_count,
+        "pending_updates":     updates,
+        "plugin_updates_list": info["plugin_updates_list"],
+        "theme_updates_list":  info["theme_updates_list"],
+        "server_last_checked": now_iso(),
+    })
+
     icon = "⚠️" if updates else "✅"
     summary = f"{icon} WP {result.wp_version} · PHP {result.php_version}"
     if updates:
         summary += f" · {updates} update(s) available"
-    return ActionResult.success(result, summary=summary)
+    return ActionResult.success(result, summary=summary, refresh_panels=["sidebar", "center"])

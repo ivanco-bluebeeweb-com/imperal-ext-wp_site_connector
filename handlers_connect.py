@@ -116,13 +116,16 @@ async def add_ssh(ctx, params: AddSSHParams) -> ActionResult:
     await storage.clear_content_cache(ctx, site_id)
 
     record = await storage.get_site_record(ctx, site_id) or {}
+    # Store ssh_host in the record so the sidebar can read SSH status without extra queries
+    await storage.save_site_record(ctx, {**record, "ssh_host": params.ssh_host})
+
     site = Site(id=site_id, title=record.get("name", site_id),
                 kind="wp_site", url=record.get("url", ""),
                 username=record.get("username", ""), status="connected")
     return ActionResult.success(
         site,
         summary=f"SSH connected to {params.ssh_host} — WordPress {msg}",
-        refresh_panels=["center"],
+        refresh_panels=["sidebar", "center"],
     )
 
 
@@ -139,6 +142,12 @@ async def remove_ssh(ctx, params: SiteIdParams) -> ActionResult:
     await storage.delete_ssh_cred(ctx, params.site_id)
     await storage.clear_content_cache(ctx, params.site_id)
     record = await storage.get_site_record(ctx, params.site_id) or {}
+    # Remove all SSH-derived fields from the record
+    for field in ("ssh_host", "wp_version", "php_version", "db_size_mb", "cron_count",
+                  "pending_updates", "plugin_updates_list", "theme_updates_list",
+                  "server_last_checked"):
+        record.pop(field, None)
+    await storage.save_site_record(ctx, record)
     site = Site(id=params.site_id, title=record.get("name", params.site_id),
                 kind="wp_site", url=record.get("url", ""),
                 username=record.get("username", ""), status="connected")
