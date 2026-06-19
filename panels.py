@@ -75,7 +75,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
                 subtitle=_site_subtitle(r),
                 badge=ui.Badge(color=_site_badge_color(r)),
                 selected=(active_site_id == r["id"]),
-                on_click=ui.Call("__panel__center", view="", site_id=r["id"], active_tab="posts"),
+                on_click=ui.Call("__panel__center", view="", site_id=r["id"]),
                 actions=[
                     {"icon": "RefreshCw",
                      "on_click": ui.Call("refresh_site", site_id=r["id"])},
@@ -92,7 +92,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 
     if not active_site_id and rows:
         root.props["auto_action"] = ui.Call(
-            "__panel__center", view="", site_id=rows[0]["id"], active_tab="posts"
+            "__panel__center", view="", site_id=rows[0]["id"]
         )
     return root
 
@@ -100,16 +100,19 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 # ── Single center panel ────────────────────────────────────────────────────────
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
-async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
+async def center(ctx, view="", site_id="",
+                 std_tab="posts", act_tab="comments",
+                 cpt_tab="", tax_tab="",
+                 **kwargs):
     if view == "connect":
         return _render_connect_form()
     if view == "add_ssh" and site_id:
         if await storage.has_ssh(ctx, site_id):
-            return await _render_detail(ctx, site_id, active_tab)
+            return await _render_detail(ctx, site_id, std_tab, act_tab, cpt_tab, tax_tab)
         await storage.set_pending_ssh_site(ctx, site_id)
         return _render_add_ssh_form(site_id)
     if site_id:
-        return await _render_detail(ctx, site_id, active_tab)
+        return await _render_detail(ctx, site_id, std_tab, act_tab, cpt_tab, tax_tab)
     return ui.Empty(message="Select a site from the list to view its dashboard.")
 
 
@@ -234,7 +237,9 @@ def _render_content_table(items, tab):
 
 # ── Site detail ───────────────────────────────────────────────────────────────
 
-async def _render_detail(ctx, site_id, active_tab="posts"):
+async def _render_detail(ctx, site_id,
+                         std_tab="posts", act_tab="comments",
+                         cpt_tab="", tax_tab=""):
     record = await storage.get_site_record(ctx, site_id) or {}
     if not record:
         return ui.Empty(message="Site not found — it may have been removed.")
@@ -526,78 +531,68 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     for slug in tax_meta:
         content_map[f"tax:{slug}"] = dynamic.get(f"tax:{slug}")
 
-    items = content_map.get(active_tab)
+    # ── Zone 3: Independent content sections ─────────────
 
-    # ── Zone 3: Grouped content navigation ───────────────
-    def _btn(label, key):
+    def _btn(label, key, active, **override):
+        """Button that preserves all tab states, overriding only the relevant one."""
         return ui.Button(
             label,
-            variant="secondary" if active_tab == key else "ghost",
+            variant="secondary" if active == key else "ghost",
             size="sm",
-            on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
+            on_click=ui.Call("__panel__center",
+                             view="", site_id=site_id,
+                             std_tab=std_tab, act_tab=act_tab,
+                             cpt_tab=cpt_tab, tax_tab=tax_tab,
+                             **override),
         )
 
-    def _label(text):
-        return ui.Text(text, variant="caption")
+    def _section(label, buttons, tab_key):
+        return ui.Stack(gap=2, children=[
+            ui.Divider(label=label),
+            ui.Stack(direction="h", gap=1, wrap=True, children=buttons),
+            _render_content_table(content_map.get(tab_key), tab_key),
+        ])
 
-    activity_btns = [
-        _btn("Comments", "comments"),
-        _btn("Scheduled", "scheduled"),
-        _btn("Users", "users"),
+    # Standard
+    std_section = _section("Standard", [
+        _btn("Posts",  "posts",  std_tab, std_tab="posts"),
+        _btn("Pages",  "pages",  std_tab, std_tab="pages"),
+        _btn("Media",  "media",  std_tab, std_tab="media"),
+    ], std_tab)
+
+    # Activity
+    act_btns = [
+        _btn("Comments",  "comments",  act_tab, act_tab="comments"),
+        _btn("Scheduled", "scheduled", act_tab, act_tab="scheduled"),
+        _btn("Users",     "users",     act_tab, act_tab="users"),
     ]
     if orders_data is not None:
-        activity_btns.append(_btn("Orders", "orders"))
+        act_btns.append(_btn("Orders", "orders", act_tab, act_tab="orders"))
+    act_section = _section("Activity", act_btns, act_tab)
 
-    nav_rows = [
-        ui.Stack(direction="h", align="center", gap=3, children=[
-            _label("Standard"),
-            ui.Stack(direction="h", gap=1, wrap=True, children=[
-                _btn("Posts", "posts"), _btn("Pages", "pages"), _btn("Media", "media"),
-            ]),
-        ]),
-        ui.Stack(direction="h", align="center", gap=3, children=[
-            _label("Activity"),
-            ui.Stack(direction="h", gap=1, wrap=True, children=activity_btns),
-        ]),
-    ]
+    content_sections = [std_section, act_section]
 
+    # Custom Types
     if cpt_meta:
-        cpt_value = active_tab if active_tab.startswith("cpt:") else ""
-        nav_rows.append(ui.Stack(direction="h", align="center", gap=3, children=[
-            _label("Custom Types"),
-            ui.Select(
-                options=[{"value": f"cpt:{s}", "label": m["name"]}
-                         for s, m in cpt_meta.items()],
-                value=cpt_value,
-                placeholder="Select type…",
-                param_name="active_tab",
-                on_change=ui.Call("__panel__center", view="", site_id=site_id),
-            ),
-        ]))
+        first_cpt = f"cpt:{list(cpt_meta.keys())[0]}"
+        cpt_active = cpt_tab if cpt_tab else first_cpt
+        cpt_btns = [_btn(m["name"], f"cpt:{s}", cpt_active, cpt_tab=f"cpt:{s}")
+                    for s, m in cpt_meta.items()]
+        content_sections.append(_section("Custom Types", cpt_btns, cpt_active))
 
+    # Taxonomies
     if tax_meta:
-        tax_value = active_tab if active_tab.startswith("tax:") else ""
-        nav_rows.append(ui.Stack(direction="h", align="center", gap=3, children=[
-            _label("Taxonomies"),
-            ui.Select(
-                options=[{"value": f"tax:{s}", "label": m["name"]}
-                         for s, m in tax_meta.items()],
-                value=tax_value,
-                placeholder="Select taxonomy…",
-                param_name="active_tab",
-                on_change=ui.Call("__panel__center", view="", site_id=site_id),
-            ),
-        ]))
-
-    content_nav = ui.Stack(gap=2, sticky=True, children=nav_rows)
+        first_tax = f"tax:{list(tax_meta.keys())[0]}"
+        tax_active = tax_tab if tax_tab else first_tax
+        tax_btns = [_btn(m["name"], f"tax:{s}", tax_active, tax_tab=f"tax:{s}")
+                    for s, m in tax_meta.items()]
+        content_sections.append(_section("Taxonomies", tax_btns, tax_active))
 
     # ── Assemble page ─────────────────────────────────
     page_children = [
         health_row,
         *server_section_children,
-        ui.Divider(label="Content"),
-        content_nav,
-        _render_content_table(items, active_tab),
+        *content_sections,
     ]
 
     return ui.Page(title=name, subtitle=base_url, children=page_children)
