@@ -101,6 +101,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
 async def center(ctx, view="", site_id="",
+                 group_tab="standard",
                  std_tab="posts", act_tab="comments",
                  cpt_tab="", tax_tab="",
                  **kwargs):
@@ -108,11 +109,11 @@ async def center(ctx, view="", site_id="",
         return _render_connect_form()
     if view == "add_ssh" and site_id:
         if await storage.has_ssh(ctx, site_id):
-            return await _render_detail(ctx, site_id, std_tab, act_tab, cpt_tab, tax_tab)
+            return await _render_detail(ctx, site_id, group_tab, std_tab, act_tab, cpt_tab, tax_tab)
         await storage.set_pending_ssh_site(ctx, site_id)
         return _render_add_ssh_form(site_id)
     if site_id:
-        return await _render_detail(ctx, site_id, std_tab, act_tab, cpt_tab, tax_tab)
+        return await _render_detail(ctx, site_id, group_tab, std_tab, act_tab, cpt_tab, tax_tab)
     return ui.Empty(message="Select a site from the list to view its dashboard.")
 
 
@@ -238,6 +239,7 @@ def _render_content_table(items, tab):
 # ── Site detail ───────────────────────────────────────────────────────────────
 
 async def _render_detail(ctx, site_id,
+                         group_tab="standard",
                          std_tab="posts", act_tab="comments",
                          cpt_tab="", tax_tab=""):
     record = await storage.get_site_record(ctx, site_id) or {}
@@ -531,68 +533,90 @@ async def _render_detail(ctx, site_id,
     for slug in tax_meta:
         content_map[f"tax:{slug}"] = dynamic.get(f"tax:{slug}")
 
-    # ── Zone 3: Independent content sections ─────────────
+    # ── Zone 3: Group tabs + active section ──────────────
 
-    def _btn(label, key, active, **override):
-        """Button that preserves all tab states, overriding only the relevant one."""
-        call_kwargs = dict(view="", site_id=site_id,
-                           std_tab=std_tab, act_tab=act_tab,
-                           cpt_tab=cpt_tab, tax_tab=tax_tab)
-        call_kwargs.update(override)
-        return ui.Button(
-            label,
-            variant="secondary" if active == key else "ghost",
-            size="sm",
-            on_click=ui.Call("__panel__center", **call_kwargs),
-        )
+    def _call(**override):
+        kw = dict(view="", site_id=site_id,
+                  group_tab=group_tab, std_tab=std_tab,
+                  act_tab=act_tab, cpt_tab=cpt_tab, tax_tab=tax_tab)
+        kw.update(override)
+        return ui.Call("__panel__center", **kw)
 
-    def _section(label, buttons, tab_key):
-        return ui.Stack(gap=2, children=[
-            ui.Divider(label=label),
-            ui.Stack(direction="h", gap=1, wrap=True, children=buttons),
-            _render_content_table(content_map.get(tab_key), tab_key),
+    def _group_btn(label, key):
+        return ui.Button(label,
+                         variant="secondary" if group_tab == key else "ghost",
+                         size="sm",
+                         on_click=_call(group_tab=key))
+
+    def _item_btn(label, key, active, param):
+        return ui.Button(label,
+                         variant="secondary" if active == key else "ghost",
+                         size="sm",
+                         on_click=_call(**{param: key}))
+
+    # Group-level tab bar
+    group_btns = [
+        _group_btn("Standard", "standard"),
+        _group_btn("Activity", "activity"),
+    ]
+    if cpt_meta:
+        group_btns.append(_group_btn("Custom Types", "cpt"))
+    if tax_meta:
+        group_btns.append(_group_btn("Taxonomies", "tax"))
+
+    group_nav = ui.Stack(direction="h", gap=1, sticky=True, children=group_btns)
+
+    # Active section content
+    if group_tab == "activity":
+        act_btns = [
+            _item_btn("Comments",  "comments",  act_tab, "act_tab"),
+            _item_btn("Scheduled", "scheduled", act_tab, "act_tab"),
+            _item_btn("Users",     "users",     act_tab, "act_tab"),
+        ]
+        if orders_data is not None:
+            act_btns.append(_item_btn("Orders", "orders", act_tab, "act_tab"))
+        active_content = ui.Stack(gap=3, children=[
+            ui.Stack(direction="h", gap=1, wrap=True, children=act_btns),
+            _render_content_table(content_map.get(act_tab), act_tab),
         ])
 
-    # Standard
-    std_section = _section("Standard", [
-        _btn("Posts",  "posts",  std_tab, std_tab="posts"),
-        _btn("Pages",  "pages",  std_tab, std_tab="pages"),
-        _btn("Media",  "media",  std_tab, std_tab="media"),
-    ], std_tab)
-
-    # Activity
-    act_btns = [
-        _btn("Comments",  "comments",  act_tab, act_tab="comments"),
-        _btn("Scheduled", "scheduled", act_tab, act_tab="scheduled"),
-        _btn("Users",     "users",     act_tab, act_tab="users"),
-    ]
-    if orders_data is not None:
-        act_btns.append(_btn("Orders", "orders", act_tab, act_tab="orders"))
-    act_section = _section("Activity", act_btns, act_tab)
-
-    content_sections = [std_section, act_section]
-
-    # Custom Types
-    if cpt_meta:
+    elif group_tab == "cpt" and cpt_meta:
         first_cpt = f"cpt:{list(cpt_meta.keys())[0]}"
         cpt_active = cpt_tab if cpt_tab else first_cpt
-        cpt_btns = [_btn(m["name"], f"cpt:{s}", cpt_active, cpt_tab=f"cpt:{s}")
+        cpt_btns = [_item_btn(m["name"], f"cpt:{s}", cpt_active, "cpt_tab")
                     for s, m in cpt_meta.items()]
-        content_sections.append(_section("Custom Types", cpt_btns, cpt_active))
+        active_content = ui.Stack(gap=3, children=[
+            ui.Stack(direction="h", gap=1, wrap=True, children=cpt_btns),
+            _render_content_table(content_map.get(cpt_active), cpt_active),
+        ])
 
-    # Taxonomies
-    if tax_meta:
+    elif group_tab == "tax" and tax_meta:
         first_tax = f"tax:{list(tax_meta.keys())[0]}"
         tax_active = tax_tab if tax_tab else first_tax
-        tax_btns = [_btn(m["name"], f"tax:{s}", tax_active, tax_tab=f"tax:{s}")
+        tax_btns = [_item_btn(m["name"], f"tax:{s}", tax_active, "tax_tab")
                     for s, m in tax_meta.items()]
-        content_sections.append(_section("Taxonomies", tax_btns, tax_active))
+        active_content = ui.Stack(gap=3, children=[
+            ui.Stack(direction="h", gap=1, wrap=True, children=tax_btns),
+            _render_content_table(content_map.get(tax_active), tax_active),
+        ])
+
+    else:  # standard (default)
+        active_content = ui.Stack(gap=3, children=[
+            ui.Stack(direction="h", gap=1, children=[
+                _item_btn("Posts", "posts", std_tab, "std_tab"),
+                _item_btn("Pages", "pages", std_tab, "std_tab"),
+                _item_btn("Media", "media", std_tab, "std_tab"),
+            ]),
+            _render_content_table(content_map.get(std_tab), std_tab),
+        ])
 
     # ── Assemble page ─────────────────────────────────
     page_children = [
         health_row,
         *server_section_children,
-        *content_sections,
+        ui.Divider(label="Content"),
+        group_nav,
+        active_content,
     ]
 
     return ui.Page(title=name, subtitle=base_url, children=page_children)
