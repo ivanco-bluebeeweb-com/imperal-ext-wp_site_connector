@@ -170,8 +170,9 @@ async def test_center_shows_detail_when_site_id():
     s = str(node)
     assert "x.com" in s
     assert "Stats" in s
-    assert "Tabs" in s
     assert "Hello" in s
+    # tab buttons instead of ui.Tabs
+    assert "Posts" in s and "Pages" in s and "Media" in s
 
 
 async def test_center_detail_shows_alert_on_missing_credential():

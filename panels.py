@@ -40,7 +40,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
                 subtitle=r.get("status", "connected"),
                 badge=ui.Badge(color="green" if r.get("status") == "connected" else "red"),
                 selected=(active_site_id == r["id"]),
-                on_click=ui.Call("__panel__center", view="", site_id=r["id"]),
+                on_click=ui.Call("__panel__center", view="", site_id=r["id"], active_tab="posts"),
                 actions=[
                     {"icon": "RefreshCw",
                      "on_click": ui.Call("refresh_site", site_id=r["id"])},
@@ -55,30 +55,23 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 
     root = ui.Stack(children=[connect_btn, ui.Divider(), site_list], gap=3)
 
-    # Auto-open the first site on first load. Guard: only when no site is active.
     if not active_site_id and rows:
         root.props["auto_action"] = ui.Call(
-            "__panel__center", view="", site_id=rows[0]["id"]
+            "__panel__center", view="", site_id=rows[0]["id"], active_tab="posts"
         )
 
     return root
 
 
-# ── Single center panel — branches on `view` kwarg ────────────────────────────
-#
-# view=""        + site_id=""   → empty state (select a site)
-# view=""        + site_id=X   → site detail dashboard
-# view="connect" + site_id=""  → connect form
-#
-# All ui.Call to this panel pass BOTH kwargs explicitly to override accumulated state.
+# ── Single center panel — branches on `view` and `active_tab` kwargs ──────────
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
-async def center(ctx, view="", site_id="", **kwargs):
-    """Single center overlay: branches between site detail and connect form."""
+async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
+    """Single center overlay: connect form or site detail with tab switching."""
     if view == "connect":
         return _render_connect_form()
     if site_id:
-        return await _render_detail(ctx, site_id)
+        return await _render_detail(ctx, site_id, active_tab)
     return ui.Empty(message="Select a site from the list to view its dashboard.")
 
 
@@ -112,21 +105,31 @@ def _render_connect_form():
     ], gap=4)
 
 
-# ── Site detail ───────────────────────────────────────────────────────────────
+# ── Site detail with manual tab switching ─────────────────────────────────────
 
-def _items_or_none(r):
-    if r is None or r.status_code != 200 or not isinstance(r.body, list):
-        return None
-    return r.body
+def _tab_bar(site_id, active_tab):
+    """Manual tab buttons — ui.Tabs is not a client-side switcher in this platform."""
+    def _btn(label, key):
+        return ui.Button(
+            label,
+            variant="secondary" if active_tab == key else "ghost",
+            size="sm",
+            on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
+        )
+    return ui.Stack(
+        children=[_btn("Posts", "posts"), _btn("Pages", "pages"), _btn("Media", "media")],
+        direction="h",
+        gap=1,
+        sticky=True,
+    )
 
 
-def _content_tab(label, items):
+def _render_content_table(items, tab):
     if items is None:
-        return {"label": label, "content": ui.Alert(
-            message="Could not load — check the connection.", type="error")}
+        return ui.Alert(message="Could not load — check the connection.", type="error")
     if not items:
-        return {"label": label, "content": ui.Empty(message=f"No {label.lower()} found.")}
-    if label == "Media":
+        return ui.Empty(message=f"No {tab} found.")
+    if tab == "media":
         columns = [
             ui.DataColumn("title",     "Title", sortable=True),
             ui.DataColumn("mime_type", "Type",  sortable=True),
@@ -149,10 +152,10 @@ def _content_tab(label, items):
             }
             for it in items
         ]
-    return {"label": label, "content": ui.DataTable(columns=columns, rows=rows)}
+    return ui.DataTable(columns=columns, rows=rows)
 
 
-async def _render_detail(ctx, site_id):
+async def _render_detail(ctx, site_id, active_tab="posts"):
     record = await storage.get_site_record(ctx, site_id) or {}
     if not record:
         return ui.Empty(message="Site not found — it may have been removed.")
@@ -165,6 +168,13 @@ async def _render_detail(ctx, site_id):
     username = record.get("username", "")
     name = urlparse(base_url).netloc or record.get("name", site_id)
 
+    # Fetch health + only the active tab's content in parallel
+    tab_path = {
+        "posts": "/wp-json/wp/v2/posts",
+        "pages": "/wp-json/wp/v2/pages",
+        "media": "/wp-json/wp/v2/media",
+    }.get(active_tab, "/wp-json/wp/v2/posts")
+
     async def _get(path, per_page):
         try:
             return await wp_get(ctx, base_url, path, username=username, app_password=pw,
@@ -172,22 +182,20 @@ async def _render_detail(ctx, site_id):
         except Exception:
             return None
 
-    me, posts_r, pages_r, media_r = await asyncio.gather(
+    me, content_r = await asyncio.gather(
         _get("/wp-json/wp/v2/users/me", 1),
-        _get("/wp-json/wp/v2/posts", 20),
-        _get("/wp-json/wp/v2/pages", 20),
-        _get("/wp-json/wp/v2/media", 20),
+        _get(tab_path, 20),
     )
 
     reachable = me is not None
     auth_ok = me is not None and me.status_code == 200
     ssl_valid = base_url.startswith("https://")
-    posts = _items_or_none(posts_r)
-    pages = _items_or_none(pages_r)
-    media = _items_or_none(media_r)
 
-    def _n(lst):
-        return len(lst) if lst is not None else "?"
+    items = (
+        content_r.body
+        if content_r and content_r.status_code == 200 and isinstance(content_r.body, list)
+        else None
+    )
 
     health_stats = ui.Stats(columns=3, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",
@@ -197,15 +205,9 @@ async def _render_detail(ctx, site_id):
         ui.Stat(label="SSL",       value="HTTPS" if ssl_valid else "HTTP",
                 color="green" if ssl_valid else "red"),
     ])
-    count_stats = ui.Stats(columns=3, children=[
-        ui.Stat(label="Posts", value=_n(posts), color="blue"),
-        ui.Stat(label="Pages", value=_n(pages), color="blue"),
-        ui.Stat(label="Media", value=_n(media), color="blue"),
-    ])
-    tabs = [_content_tab("Posts", posts), _content_tab("Pages", pages), _content_tab("Media", media)]
 
     return ui.Page(title=name, subtitle=base_url, children=[
         health_stats,
-        count_stats,
-        ui.Tabs(tabs=tabs),
+        _tab_bar(site_id, active_tab),
+        _render_content_table(items, active_tab),
     ])
