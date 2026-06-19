@@ -1,4 +1,5 @@
 import asyncio
+import html as _html
 from urllib.parse import urlparse
 
 from imperal_sdk import ui
@@ -100,20 +101,16 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 # ── Single center panel ────────────────────────────────────────────────────────
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
-async def center(ctx, view="", site_id="",
-                 group_tab="standard",
-                 std_tab="posts", act_tab="comments",
-                 cpt_tab="", tax_tab="",
-                 **kwargs):
+async def center(ctx, view="", site_id="", **kwargs):
     if view == "connect":
         return _render_connect_form()
     if view == "add_ssh" and site_id:
         if await storage.has_ssh(ctx, site_id):
-            return await _render_detail(ctx, site_id, group_tab, std_tab, act_tab, cpt_tab, tax_tab)
+            return await _render_detail(ctx, site_id)
         await storage.set_pending_ssh_site(ctx, site_id)
         return _render_add_ssh_form(site_id)
     if site_id:
-        return await _render_detail(ctx, site_id, group_tab, std_tab, act_tab, cpt_tab, tax_tab)
+        return await _render_detail(ctx, site_id)
     return ui.Empty(message="Select a site from the list to view its dashboard.")
 
 
@@ -236,12 +233,172 @@ def _render_content_table(items, tab):
     return ui.DataTable(columns=cols, rows=rows)
 
 
+# ── Client-side HTML tab switcher ────────────────────────────────────────────
+
+def _e(v):
+    return _html.escape(str(v or ""))
+
+
+_CSS = """
+body{background:transparent;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding:0}
+.top-bar{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+.group-btn{padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;background:transparent;color:#888;border:none;transition:background .1s,color .1s}
+.group-btn.active{background:#2d2d2d;color:#fff}
+.group-btn:hover:not(.active){color:#ccc}
+.group-panel{display:none}.group-panel.active{display:block}
+.sub-bar{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.sub-btn{padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;background:transparent;color:#777;border:none}
+.sub-btn.active{background:#333;color:#fff}
+.sub-panel{display:none}.sub-panel.active{display:block}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;color:#666;border-bottom:1px solid #2a2a2a;font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+td{padding:8px 10px;border-bottom:1px solid #222}
+tr:hover td{background:#1a1a1a}
+.empty{color:#555;font-size:13px;padding:12px 0}
+.err{color:#ef4444;font-size:13px;padding:12px 0}
+"""
+
+_JS = """
+function activateGroup(id){
+  document.querySelectorAll('.group-btn,.group-panel').forEach(e=>e.classList.remove('active'));
+  document.querySelector('.group-btn[data-g="'+id+'"]').classList.add('active');
+  document.getElementById('gp-'+id).classList.add('active');
+}
+function activateTab(g,id){
+  document.querySelectorAll('#gp-'+g+' .sub-btn,#gp-'+g+' .sub-panel').forEach(e=>e.classList.remove('active'));
+  document.querySelector('#gp-'+g+' .sub-btn[data-t="'+id+'"]').classList.add('active');
+  document.getElementById('tp-'+g+'-'+id).classList.add('active');
+}
+"""
+
+
+def _html_table(cols, rows):
+    if rows is None:
+        return '<p class="err">Could not load — check the connection.</p>'
+    if not rows:
+        return '<p class="empty">No items found.</p>'
+    ths = "".join(f"<th>{_e(c['label'])}</th>" for c in cols)
+    trs = "".join(
+        "<tr>" + "".join(f"<td>{_e(r.get(c['key'], ''))}</td>" for c in cols) + "</tr>"
+        for r in rows
+    )
+    return f"<table><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table>"
+
+
+def _build_content_html(content_map, cpt_meta, tax_meta, orders_data):
+    """Build the full client-side tab switcher as an HTML string."""
+
+    def _posts_rows(items):
+        if items is None:
+            return None
+        return [{"title": wp_title(it), "status": it.get("status", ""),
+                 "date": (it.get("date", "") or "")[:10]} for it in items]
+
+    def _std_panel():
+        tabs = [
+            ("posts", "Posts",    [{"key":"title","label":"Title"},{"key":"status","label":"Status"},{"key":"date","label":"Date"}],
+             _posts_rows(content_map.get("posts"))),
+            ("pages", "Pages",    [{"key":"title","label":"Title"},{"key":"status","label":"Status"},{"key":"date","label":"Date"}],
+             _posts_rows(content_map.get("pages"))),
+            ("media", "Media",    [{"key":"title","label":"Title"},{"key":"mime_type","label":"Type"}],
+             [{"title": wp_title(it), "mime_type": it.get("mime_type", "")}
+              for it in (content_map.get("media") or [])] if content_map.get("media") is not None else None),
+        ]
+        return _sub_panel("std", tabs)
+
+    def _act_panel():
+        tabs = [
+            ("comments", "Comments",
+             [{"key":"author","label":"Author"},{"key":"snippet","label":"Comment"},{"key":"status","label":"Status"},{"key":"date","label":"Date"}],
+             [{"author": it.get("author_name",""),
+               "snippet": (it.get("content",{}).get("rendered","") or "").replace("<p>","").replace("</p>","")[:60],
+               "status": it.get("status",""), "date": (it.get("date","") or "")[:10]}
+              for it in (content_map.get("comments") or [])] if content_map.get("comments") is not None else None),
+            ("scheduled", "Scheduled",
+             [{"key":"title","label":"Title"},{"key":"date","label":"Scheduled"}],
+             [{"title": wp_title(it), "date": (it.get("date","") or "")[:16].replace("T"," ")}
+              for it in (content_map.get("scheduled") or [])] if content_map.get("scheduled") is not None else None),
+            ("users", "Users",
+             [{"key":"name","label":"Name"},{"key":"role","label":"Role"},{"key":"registered","label":"Registered"}],
+             [{"name": it.get("name",""), "role": ", ".join(it.get("roles",[])),
+               "registered": (it.get("registered_date","") or "")[:10]}
+              for it in (content_map.get("users") or [])] if content_map.get("users") is not None else None),
+        ]
+        if orders_data is not None:
+            tabs.append(("orders","Orders",
+                [{"key":"id","label":"#"},{"key":"status","label":"Status"},{"key":"total","label":"Total"},{"key":"date","label":"Date"}],
+                [{"id": str(o.get("id","")), "status": o.get("status",""),
+                  "total": f"{o.get('total','')} {o.get('currency','')}".strip(),
+                  "date": (o.get("date_created","") or "")[:10]}
+                 for o in orders_data] if orders_data else []))
+        return _sub_panel("act", tabs)
+
+    def _cpt_panel():
+        tabs = []
+        for slug, meta in cpt_meta.items():
+            key = f"cpt_{slug}"
+            items = content_map.get(f"cpt:{slug}")
+            rows = _posts_rows(items) if items is not None else None
+            tabs.append((key, meta["name"],
+                         [{"key":"title","label":"Title"},{"key":"status","label":"Status"},{"key":"date","label":"Date"}],
+                         rows))
+        return _sub_panel("cpt", tabs)
+
+    def _tax_panel():
+        tabs = []
+        for slug, meta in tax_meta.items():
+            key = f"tax_{slug}"
+            items = content_map.get(f"tax:{slug}")
+            rows = [{"name": it.get("name",""), "count": str(it.get("count",0)), "slug": it.get("slug","")}
+                    for it in (items or [])] if items is not None else None
+            tabs.append((key, meta["name"],
+                         [{"key":"name","label":"Term"},{"key":"count","label":"Posts"},{"key":"slug","label":"Slug"}],
+                         rows))
+        return _sub_panel("tax", tabs)
+
+    def _sub_panel(group_id, tabs):
+        if not tabs:
+            return '<p class="empty">No items.</p>'
+        first = tabs[0][0]
+        btns = "".join(
+            f'<button class="sub-btn{"  active" if i==0 else ""}" data-t="{_e(key)}" onclick="activateTab(\'{_e(group_id)}\',\'{_e(key)}\')">{_e(label)}</button>'
+            for i, (key, label, _, _r) in enumerate(tabs)
+        )
+        panels = "".join(
+            f'<div class="sub-panel{"  active" if i==0 else ""}" id="tp-{_e(group_id)}-{_e(key)}">{_html_table(cols, rows)}</div>'
+            for i, (key, _l, cols, rows) in enumerate(tabs)
+        )
+        return f'<div class="sub-bar">{btns}</div>{panels}'
+
+    groups = [("std", "Standard", _std_panel()),
+              ("act", "Activity", _act_panel())]
+    if cpt_meta:
+        groups.append(("cpt", "Custom Types", _cpt_panel()))
+    if tax_meta:
+        groups.append(("tax", "Taxonomies",   _tax_panel()))
+
+    top_btns = "".join(
+        f'<button class="group-btn{"  active" if i==0 else ""}" data-g="{_e(gid)}" onclick="activateGroup(\'{_e(gid)}\')">{_e(glabel)}</button>'
+        for i, (gid, glabel, _) in enumerate(groups)
+    )
+    panels_html = "".join(
+        f'<div class="group-panel{"  active" if i==0 else ""}" id="gp-{_e(gid)}">{gcontent}</div>'
+        for i, (gid, _, gcontent) in enumerate(groups)
+    )
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>{_CSS}</style>
+<script>{_JS}</script>
+</head><body>
+<div class="top-bar">{top_btns}</div>
+{panels_html}
+</body></html>"""
+
+
 # ── Site detail ───────────────────────────────────────────────────────────────
 
-async def _render_detail(ctx, site_id,
-                         group_tab="standard",
-                         std_tab="posts", act_tab="comments",
-                         cpt_tab="", tax_tab=""):
+async def _render_detail(ctx, site_id):
     record = await storage.get_site_record(ctx, site_id) or {}
     if not record:
         return ui.Empty(message="Site not found — it may have been removed.")
@@ -533,90 +690,15 @@ async def _render_detail(ctx, site_id,
     for slug in tax_meta:
         content_map[f"tax:{slug}"] = dynamic.get(f"tax:{slug}")
 
-    # ── Zone 3: Group tabs + active section ──────────────
-
-    def _call(**override):
-        kw = dict(view="", site_id=site_id,
-                  group_tab=group_tab, std_tab=std_tab,
-                  act_tab=act_tab, cpt_tab=cpt_tab, tax_tab=tax_tab)
-        kw.update(override)
-        return ui.Call("__panel__center", **kw)
-
-    def _group_btn(label, key):
-        return ui.Button(label,
-                         variant="secondary" if group_tab == key else "ghost",
-                         size="sm",
-                         on_click=_call(group_tab=key))
-
-    def _item_btn(label, key, active, param):
-        return ui.Button(label,
-                         variant="secondary" if active == key else "ghost",
-                         size="sm",
-                         on_click=_call(**{param: key}))
-
-    # Group-level tab bar
-    group_btns = [
-        _group_btn("Standard", "standard"),
-        _group_btn("Activity", "activity"),
-    ]
-    if cpt_meta:
-        group_btns.append(_group_btn("Custom Types", "cpt"))
-    if tax_meta:
-        group_btns.append(_group_btn("Taxonomies", "tax"))
-
-    group_nav = ui.Stack(direction="h", gap=1, sticky=True, children=group_btns)
-
-    # Active section content
-    if group_tab == "activity":
-        act_btns = [
-            _item_btn("Comments",  "comments",  act_tab, "act_tab"),
-            _item_btn("Scheduled", "scheduled", act_tab, "act_tab"),
-            _item_btn("Users",     "users",     act_tab, "act_tab"),
-        ]
-        if orders_data is not None:
-            act_btns.append(_item_btn("Orders", "orders", act_tab, "act_tab"))
-        active_content = ui.Stack(gap=3, children=[
-            ui.Stack(direction="h", gap=1, wrap=True, children=act_btns),
-            _render_content_table(content_map.get(act_tab), act_tab),
-        ])
-
-    elif group_tab == "cpt" and cpt_meta:
-        first_cpt = f"cpt:{list(cpt_meta.keys())[0]}"
-        cpt_active = cpt_tab if cpt_tab else first_cpt
-        cpt_btns = [_item_btn(m["name"], f"cpt:{s}", cpt_active, "cpt_tab")
-                    for s, m in cpt_meta.items()]
-        active_content = ui.Stack(gap=3, children=[
-            ui.Stack(direction="h", gap=1, wrap=True, children=cpt_btns),
-            _render_content_table(content_map.get(cpt_active), cpt_active),
-        ])
-
-    elif group_tab == "tax" and tax_meta:
-        first_tax = f"tax:{list(tax_meta.keys())[0]}"
-        tax_active = tax_tab if tax_tab else first_tax
-        tax_btns = [_item_btn(m["name"], f"tax:{s}", tax_active, "tax_tab")
-                    for s, m in tax_meta.items()]
-        active_content = ui.Stack(gap=3, children=[
-            ui.Stack(direction="h", gap=1, wrap=True, children=tax_btns),
-            _render_content_table(content_map.get(tax_active), tax_active),
-        ])
-
-    else:  # standard (default)
-        active_content = ui.Stack(gap=3, children=[
-            ui.Stack(direction="h", gap=1, children=[
-                _item_btn("Posts", "posts", std_tab, "std_tab"),
-                _item_btn("Pages", "pages", std_tab, "std_tab"),
-                _item_btn("Media", "media", std_tab, "std_tab"),
-            ]),
-            _render_content_table(content_map.get(std_tab), std_tab),
-        ])
+    # ── Zone 3: Client-side HTML tab switcher ─────────────
+    content_html = _build_content_html(content_map, cpt_meta, tax_meta, orders_data)
 
     # ── Assemble page ─────────────────────────────────
     page_children = [
         health_row,
         *server_section_children,
         ui.Divider(label="Content"),
-        group_nav,
-        active_content,
+        ui.Html(content=content_html, sandbox=False, max_height=0, theme="dark"),
     ]
 
     return ui.Page(title=name, subtitle=base_url, children=page_children)
