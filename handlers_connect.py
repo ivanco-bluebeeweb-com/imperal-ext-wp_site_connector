@@ -87,6 +87,7 @@ async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
     action_type="write",
     data_model=Site,
     effects=["wp.ssh_connect"],
+    event="wp-site-connector.add_ssh",
 )
 async def add_ssh(ctx, params: AddSSHParams) -> ActionResult:
     """Validate SSH connection + WP-CLI, then store credentials."""
@@ -128,6 +129,7 @@ async def add_ssh(ctx, params: AddSSHParams) -> ActionResult:
     action_type="write",
     data_model=Site,
     effects=["wp.ssh_disconnect"],
+    event="wp-site-connector.remove_ssh",
 )
 async def remove_ssh(ctx, params: SiteIdParams) -> ActionResult:
     """Delete stored SSH credentials for the site."""
