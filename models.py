@@ -29,6 +29,19 @@ class _NoParams(BaseModel):
     pass
 
 
+class ListCommentsParams(BaseModel):
+    site_id: str = Field(description="Site id from a previous list_sites call — never invent it")
+    status: str = Field(default="hold", description="Comment status: 'hold' (pending moderation), 'approved', 'spam', or 'all'")
+    limit: int = Field(default=20, ge=1, le=100, description="Max items to return, 1-100")
+
+
+class ListCustomPostsParams(BaseModel):
+    site_id: str = Field(description="Site id from a previous list_sites call — never invent it")
+    post_type: str = Field(description="REST base slug of the custom post type, e.g. 'products', 'events', 'portfolio'")
+    limit: int = Field(default=20, ge=1, le=100, description="Max items to return, 1-100")
+    search: str | None = Field(default=None, description="Optional search term")
+
+
 # SDL entities. sdl.Entity already provides: id, title, kind, subtitle, description, status, url.
 class Site(sdl.Entity):
     username: str = ""
@@ -47,6 +60,22 @@ class Page(sdl.Entity):
 
 class MediaItem(sdl.Entity):
     mime_type: str = ""
+
+
+class Comment(sdl.Entity):
+    author: str = ""
+    snippet: str = ""
+    post_id: str = ""
+
+
+class WPUser(sdl.Entity):
+    role: str = ""
+    registered: str = ""
+
+
+class Order(sdl.Entity):
+    total: str = ""
+    currency: str = ""
 
 
 class RefreshAllResult(sdl.Entity):

@@ -3,7 +3,8 @@ import asyncio
 from imperal_sdk import ActionResult, sdl
 from app import chat
 from models import (_NoParams, Site, ListContentParams, ListMediaParams,
-                    Post, Page, MediaItem, SiteIdParams, SiteHealth, RefreshAllResult)
+                    Post, Page, MediaItem, SiteIdParams, SiteHealth, RefreshAllResult,
+                    ListCommentsParams, ListCustomPostsParams, Comment, WPUser, Order)
 from wp_client import wp_get, wp_error_message, wp_title, now_iso
 import storage
 
@@ -214,3 +215,151 @@ async def refresh_all_sites(ctx, params: _NoParams) -> ActionResult:
         summary=f"{icon} {connected}/{total} sites connected",
         refresh_panels=["sidebar"],
     )
+
+
+@chat.function(
+    "list_comments",
+    description="List comments on a connected WordPress site. Use status='hold' to see comments pending moderation, 'approved' for published, 'spam' for spam.",
+    action_type="read",
+    data_model=sdl.EntityList[Comment],
+)
+async def list_comments(ctx, params: ListCommentsParams) -> ActionResult:
+    """Return comments from the site's REST API."""
+    q: dict = {"per_page": params.limit, "orderby": "date", "order": "desc"}
+    if params.status != "all":
+        q["status"] = params.status
+    data, err = await _fetch(ctx, params.site_id, "/wp-json/wp/v2/comments", q)
+    if err:
+        return err
+    items = [
+        Comment(
+            id=str(c["id"]),
+            title=c.get("author_name", "Anonymous"),
+            kind="wp_comment",
+            status=c.get("status", ""),
+            author=c.get("author_name", ""),
+            snippet=(c.get("content", {}).get("rendered", "") or "")
+                    .replace("<p>", "").replace("</p>", "")[:120].strip(),
+            post_id=str(c.get("post", "")),
+            date=c.get("date", ""),
+        )
+        for c in data
+    ]
+    pending = sum(1 for i in items if i.status == "hold")
+    summary = f"{len(items)} comment(s)"
+    if pending:
+        summary += f" — {pending} pending moderation"
+    return ActionResult.success(sdl.EntityList[Comment](items=items), summary=summary)
+
+
+@chat.function(
+    "list_scheduled",
+    description="List posts scheduled for future publication on a connected WordPress site.",
+    action_type="read",
+    data_model=sdl.EntityList[Post],
+)
+async def list_scheduled(ctx, params: ListContentParams) -> ActionResult:
+    """Return scheduled (future) posts from the site's REST API."""
+    q: dict = {"per_page": params.limit, "status": "future", "orderby": "date", "order": "asc"}
+    if params.search:
+        q["search"] = params.search
+    data, err = await _fetch(ctx, params.site_id, "/wp-json/wp/v2/posts", q)
+    if err:
+        return err
+    items = [Post(id=str(p["id"]), title=wp_title(p), kind="wp_post",
+                  status="scheduled", link=p.get("link", ""),
+                  date=p.get("date", "")) for p in data]
+    return ActionResult.success(sdl.EntityList[Post](items=items),
+                                summary=f"{len(items)} scheduled post(s)")
+
+
+@chat.function(
+    "list_users",
+    description="List recently registered users on a connected WordPress site.",
+    action_type="read",
+    data_model=sdl.EntityList[WPUser],
+)
+async def list_users(ctx, params: ListContentParams) -> ActionResult:
+    """Return users from the site's REST API ordered by registration date."""
+    q: dict = {"per_page": params.limit, "orderby": "registered_date", "order": "desc"}
+    if params.search:
+        q["search"] = params.search
+    data, err = await _fetch(ctx, params.site_id, "/wp-json/wp/v2/users", q)
+    if err:
+        return err
+    items = [
+        WPUser(
+            id=str(u["id"]),
+            title=u.get("name", ""),
+            kind="wp_user",
+            role=", ".join(u.get("roles", [])),
+            registered=(u.get("registered_date", "") or "")[:10],
+        )
+        for u in data
+    ]
+    return ActionResult.success(sdl.EntityList[WPUser](items=items),
+                                summary=f"{len(items)} user(s)")
+
+
+@chat.function(
+    "list_orders",
+    description="List WooCommerce orders on a connected WordPress site. Returns an error if WooCommerce is not installed.",
+    action_type="read",
+    data_model=sdl.EntityList[Order],
+)
+async def list_orders(ctx, params: ListMediaParams) -> ActionResult:
+    """Return WooCommerce orders from the site's REST API."""
+    auth, err = await _authed(ctx, params.site_id)
+    if err:
+        return ActionResult.error(err, retryable=False)
+    base_url, username, pw = auth
+    try:
+        r = await wp_get(ctx, base_url, "/wp-json/wc/v3/orders",
+                         username=username, app_password=pw,
+                         params={"per_page": params.limit, "orderby": "date", "order": "desc"})
+    except Exception as e:
+        await ctx.log(f"list_orders http error: {e}", level="error")
+        return ActionResult.error("Could not reach the site.", retryable=True)
+    if r.status_code == 404:
+        return ActionResult.error("WooCommerce is not installed on this site.", retryable=False)
+    if r.status_code in (401, 403):
+        return ActionResult.error(
+            "WooCommerce requires additional permissions — ensure the Application Password user has shop manager or admin role.",
+            retryable=False,
+        )
+    if r.status_code != 200 or not isinstance(r.body, list):
+        return ActionResult.error(wp_error_message(r.status_code), retryable=r.status_code >= 500)
+    items = [
+        Order(
+            id=str(o["id"]),
+            title=f"Order #{o['id']}",
+            kind="wc_order",
+            status=o.get("status", ""),
+            total=str(o.get("total", "")),
+            currency=o.get("currency", ""),
+        )
+        for o in r.body
+    ]
+    return ActionResult.success(sdl.EntityList[Order](items=items),
+                                summary=f"{len(items)} order(s)")
+
+
+@chat.function(
+    "list_custom_posts",
+    description="List items of a custom post type on a connected WordPress site. Use post_type= with the REST base slug (e.g. 'products', 'events', 'portfolio'). Check the site's panel to see available post types.",
+    action_type="read",
+    data_model=sdl.EntityList[Post],
+)
+async def list_custom_posts(ctx, params: ListCustomPostsParams) -> ActionResult:
+    """Return items of the given custom post type from the site's REST API."""
+    q: dict = {"per_page": params.limit, "orderby": "date", "order": "desc"}
+    if params.search:
+        q["search"] = params.search
+    data, err = await _fetch(ctx, params.site_id, f"/wp-json/wp/v2/{params.post_type}", q)
+    if err:
+        return err
+    items = [Post(id=str(p["id"]), title=wp_title(p), kind=f"wp_cpt_{params.post_type}",
+                  status=p.get("status", ""), link=p.get("link", ""),
+                  date=p.get("date", "")) for p in data]
+    return ActionResult.success(sdl.EntityList[Post](items=items),
+                                summary=f"{len(items)} {params.post_type} item(s)")
