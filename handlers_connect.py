@@ -40,7 +40,12 @@ async def connect_site(ctx, **kwargs) -> ActionResult:
     record = {"id": site_id, "name": name, "url": base_url, "username": params.username,
               "status": "connected", "last_checked": now_iso()}
     await storage.save_site_record(ctx, record)
-    await storage.set_credential(ctx, site_id, params.app_password)
+    try:
+        await storage.set_credential(ctx, site_id, params.app_password)
+    except Exception as e:
+        await ctx.log(f"connect_site: credential save failed: {e}", level="error")
+        await storage.delete_site_record(ctx, site_id)
+        return ActionResult.error("Could not save credentials — try again.", retryable=True)
     site = Site(id=site_id, title=name, kind="wp_site", url=base_url,
                 username=params.username, status="connected")
     return ActionResult.success(site, summary=f"Connected {name}", refresh_panels=["sidebar"])
@@ -62,7 +67,11 @@ async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
     if not record:
         return ActionResult.error("No connected site with that id.", retryable=False)
     await storage.delete_site_record(ctx, params.site_id)
-    await storage.delete_credential(ctx, params.site_id)
+    try:
+        await storage.delete_credential(ctx, params.site_id)
+    except Exception as e:
+        # Site record is already deleted — orphaned credential is harmless.
+        await ctx.log(f"forget_site: credential cleanup failed: {e}", level="error")
     site = Site(id=params.site_id, title=record.get("name", params.site_id), kind="wp_site",
                 url=record.get("url", ""), username=record.get("username", ""), status="disconnected")
     return ActionResult.success(
