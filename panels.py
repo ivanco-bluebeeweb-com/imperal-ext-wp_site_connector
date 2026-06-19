@@ -42,27 +42,9 @@ def _site_badge_color(r: dict) -> str:
     return "green"
 
 
-def _lamp(r: dict) -> ui.Html:
-    """8×8 solid colored dot with glow shadow — status indicator left of site name."""
-    colors = {
-        "green":  "#22c55e",
-        "yellow": "#f59e0b",
-        "red":    "#ef4444",
-    }
-    c = colors.get(_site_badge_color(r), "#22c55e")
-    return ui.Html(
-        content=(
-            f"<html><head><style>"
-            f"*{{margin:0;padding:0;box-sizing:border-box}}"
-            f"body{{background:transparent;width:8px;height:8px}}"
-            f".d{{width:8px;height:8px;border-radius:50%;background:{c};"
-            f"box-shadow:0 0 8px 3px {c}88}}"
-            f"</style></head><body><div class='d'></div></body></html>"
-        ),
-        sandbox=False,
-        max_height=0,
-        theme="dark",
-    )
+def _lamp(r: dict) -> ui.Badge:
+    """Status indicator left of site name. ui.Html in avatar= doesn't render (BUG-002)."""
+    return ui.Badge(color=_site_badge_color(r))
 
 
 @ext.panel(
