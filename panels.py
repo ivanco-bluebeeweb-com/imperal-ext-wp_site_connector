@@ -88,6 +88,9 @@ async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
     if view == "connect":
         return _render_connect_form()
     if view == "add_ssh" and site_id:
+        # If SSH was just connected, skip the form and open the Server tab directly
+        if await storage.has_ssh(ctx, site_id):
+            return await _render_detail(ctx, site_id, "server")
         await storage.set_pending_ssh_site(ctx, site_id)
         return _render_add_ssh_form(site_id)
     if site_id:
