@@ -163,5 +163,5 @@ async def refresh_site(ctx, params: SiteIdParams) -> ActionResult:
     return ActionResult.success(
         site,
         summary=f"{icon} {name}: {status}",
-        refresh_panels=["overview"],
+        refresh_panels=["sidebar", "detail"],
     )

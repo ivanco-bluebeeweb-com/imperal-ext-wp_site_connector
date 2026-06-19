@@ -4,93 +4,65 @@ from urllib.parse import urlparse
 from imperal_sdk import ui
 from app import ext
 from wp_client import wp_get, wp_title
-from models import VNEXT
 import storage
 
 
-def _site_card(record):
-    site_id = record.get("id", "")
-    url = record.get("url", "")
-    name = urlparse(url).netloc or record.get("name", site_id)
-    status = record.get("status", "connected")
-    is_ok = status == "connected"
-    refresh_btn = ui.Button(
-        "", icon="RefreshCw", variant="ghost", size="sm",
-        on_click=ui.Call("refresh_site", site_id=site_id),
-    )
-    menu = ui.Menu(items=[
-        {"label": "Remove site", "icon": "Trash2",
-         "on_click": ui.Call("forget_site", site_id=site_id)},
-    ])
-    return ui.Card(
-        content=ui.Stack(direction="h", justify="between", align="center", children=[
-            ui.Badge(label="", color="green" if is_ok else "red"),
-            ui.Link(label=name, on_click=ui.Call("__panel__detail", site_id=site_id)),
-        ]),
-        footer=ui.Stack(direction="h", gap=1, children=[refresh_btn, menu]),
-    )
+# ── Left sidebar ──────────────────────────────────────────────────────────────
 
-
-@ext.panel("overview", slot="center", center_overlay=True, title="WP Sites")
-async def overview(ctx, search="", status_filter="", **kwargs):
-    """Single-panel monitoring overview: searchable, filterable 3-column grid of site cards with status Select filter."""
+@ext.panel(
+    "sidebar",
+    slot="left",
+    title="WP Sites",
+    default_width=280,
+    min_width=200,
+    max_width=400,
+    refresh="on_event:wp-site-connector.connect_site,wp-site-connector.forget_site,wp-site-connector.refresh_site",
+)
+async def sidebar(ctx, active_site_id="", **kwargs):
+    """Left panel: Connect Site button + divider + list of connected sites."""
     rows = await storage.list_site_records(ctx)
-    total = len(rows)
 
-    def _matches_search(r, q):
-        netloc = urlparse(r.get("url", "")).netloc.lower()
-        name = r.get("name", "").lower()
-        return q in name or q in netloc
+    connect_btn = ui.Button(
+        "Connect Site",
+        icon="Plus",
+        variant="primary",
+        full_width=True,
+        on_click=ui.Call("__panel__connect_form"),
+    )
 
-    filtered = [
-        r for r in rows
-        if (not search or _matches_search(r, search.lower()))
-        and (not status_filter or r.get("status", "connected") == status_filter)
-    ]
-
-    # Header
-    header = ui.Stack(direction="h", justify="between", children=[
-        ui.Text(f"{total} site{'s' if total != 1 else ''} connected", variant="heading"),
-        ui.Button("Connect New Site", variant="primary",
-                  on_click=ui.Call("__panel__connect_form")),
-    ])
-
-    # Filter bar
-    filter_bar = ui.Stack(direction="h", gap=2, children=[
-        ui.Input(
-            placeholder="Search sites… (Enter to filter)",
-            param_name="search",
-            value=search,
-            on_submit=ui.Call("__panel__overview", status_filter=status_filter),
-        ),
-        ui.Select(
-            options=[
-                {"value": "",          "label": "All"},
-                {"value": "connected", "label": "Connected"},
-                {"value": "error",     "label": "Error"},
-            ],
-            value=status_filter,
-            placeholder="All",
-            param_name="status_filter",
-            on_change=ui.Call("__panel__overview", search=search),
-        ),
-    ])
-
-    # Grid
     if not rows:
-        grid = ui.Empty(message="No sites connected yet. Click + Connect New Site to get started.")
-    elif not filtered:
-        grid = ui.Empty(message="No sites match your filter.")
+        site_list = ui.Empty(message="No sites connected yet.")
     else:
-        connect_card = ui.Card(
-            content=ui.Text("Connect new site"),
-            on_click=ui.Call("__panel__connect_form"),
-        )
-        grid = ui.Grid(columns=3, gap=4,
-                       children=[_site_card(r) for r in filtered] + [connect_card])
+        items = [
+            ui.ListItem(
+                id=r["id"],
+                title=urlparse(r.get("url", "")).netloc or r.get("name", r["id"]),
+                subtitle=r.get("status", "connected"),
+                badge=ui.Badge(color="green" if r.get("status") == "connected" else "red"),
+                selected=(active_site_id == r["id"]),
+                on_click=ui.Call("__panel__detail", site_id=r["id"]),
+                actions=[
+                    {"icon": "RefreshCw",
+                     "on_click": ui.Call("refresh_site", site_id=r["id"])},
+                    {"icon": "Trash2",
+                     "on_click": ui.Call("forget_site", site_id=r["id"]),
+                     "confirm": f"Remove {urlparse(r.get('url', '')).netloc or r['id']}?"},
+                ],
+            )
+            for r in rows
+        ]
+        site_list = ui.List(items=items)
 
-    return ui.Stack(gap=4, children=[header, filter_bar, grid])
+    root = ui.Stack(children=[connect_btn, ui.Divider(), site_list], gap=3)
 
+    # Auto-open the first site on first load. Guard: only when no site is active.
+    if not active_site_id and rows:
+        root.props["auto_action"] = ui.Call("__panel__detail", site_id=rows[0]["id"])
+
+    return root
+
+
+# ── Site detail (center overlay) ──────────────────────────────────────────────
 
 def _items_or_none(r):
     if r is None or r.status_code != 200 or not isinstance(r.body, list):
@@ -131,20 +103,25 @@ def _content_tab(label, items):
 
 
 @ext.panel("detail", slot="center", center_overlay=True, title="Site")
-async def detail(ctx, site_id=None, **kwargs):
-    """Center panel: site dashboard — health status, content counts, and content tabs."""
+async def detail(ctx, site_id="", **kwargs):
+    """Center overlay: site dashboard — health status, content counts, and content tabs."""
     if not site_id:
-        return ui.Empty(message="Select a site to view its dashboard.")
+        return ui.Empty(message="Select a site from the list to view its dashboard.")
+
     record = await storage.get_site_record(ctx, site_id) or {}
-    name = record.get("name", site_id)
+    if not record:
+        return ui.Empty(message="Site not found — it may have been removed.")
+
     base_url = record.get("url", "")
     pw = await storage.get_credential(ctx, site_id)
     if not base_url or not pw:
-        return ui.Section(title=name, children=[
-            ui.Empty(message="Credential missing — reconnect this site.")
-        ])
+        return ui.Alert(
+            message="Credential missing — reconnect this site.",
+            type="error",
+        )
 
     username = record.get("username", "")
+    name = urlparse(base_url).netloc or record.get("name", site_id)
 
     async def _get(path, per_page):
         try:
@@ -159,12 +136,16 @@ async def detail(ctx, site_id=None, **kwargs):
         _get("/wp-json/wp/v2/pages", 20),
         _get("/wp-json/wp/v2/media", 20),
     )
+
     reachable = me is not None
     auth_ok = me is not None and me.status_code == 200
     ssl_valid = base_url.startswith("https://")
-    posts, pages, media = _items_or_none(posts_r), _items_or_none(pages_r), _items_or_none(media_r)
+    posts = _items_or_none(posts_r)
+    pages = _items_or_none(pages_r)
+    media = _items_or_none(media_r)
 
-    def _n(lst): return len(lst) if lst is not None else "?"
+    def _n(lst):
+        return len(lst) if lst is not None else "?"
 
     health_stats = ui.Stats(columns=3, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",
@@ -180,15 +161,15 @@ async def detail(ctx, site_id=None, **kwargs):
         ui.Stat(label="Media", value=_n(media), color="blue"),
     ])
     tabs = [_content_tab("Posts", posts), _content_tab("Pages", pages), _content_tab("Media", media)]
-    back_btn = ui.Button("← All sites", variant="secondary",
-                         on_click=ui.Call("__panel__overview"))
+
     return ui.Page(title=name, subtitle=base_url, children=[
-        back_btn,
         health_stats,
         count_stats,
         ui.Tabs(tabs=tabs),
     ])
 
+
+# ── Connect form (center overlay) ─────────────────────────────────────────────
 
 def _field(label, help_text, input_node):
     return ui.Stack(children=[
@@ -197,14 +178,24 @@ def _field(label, help_text, input_node):
     ])
 
 
-@ext.panel("connect_form", slot="center", title="Connect a WordPress site", center_overlay=True)
+@ext.panel("connect_form", slot="center", center_overlay=True, title="Connect a WordPress site")
 async def connect_form(ctx, **kwargs):
-    """Center overlay: connection form. Submits the Application Password to the connect_site tool."""
-    return ui.Form(action="connect_site", submit_label="Connect", children=[
-        _field("Site URL", "The site's full address, e.g. https://example.com",
-               ui.Input(param_name="url", placeholder="https://example.com")),
-        _field("Username", "The WordPress username that created the Application Password",
-               ui.Input(param_name="username", placeholder="admin")),
-        _field("Application Password", "Create this under Users → Profile → Application Passwords in WordPress",
-               ui.Password(param_name="app_password")),
-    ])
+    """Center overlay: connection form. Captures URL + username + Application Password."""
+    return ui.Stack(children=[
+        ui.Form(action="connect_site", submit_label="Connect", children=[
+            _field("Site URL",
+                   "The site's full address, e.g. https://example.com",
+                   ui.Input(param_name="url", placeholder="https://example.com")),
+            _field("Username",
+                   "The WordPress username that created the Application Password",
+                   ui.Input(param_name="username", placeholder="admin")),
+            _field("Application Password",
+                   "Create this under Users → Profile → Application Passwords in WordPress",
+                   ui.Password(param_name="app_password")),
+        ]),
+        ui.Button(
+            "Cancel",
+            variant="ghost",
+            on_click=ui.Call("__panel__detail"),
+        ),
+    ], gap=4)

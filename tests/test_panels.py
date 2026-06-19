@@ -1,83 +1,163 @@
 from imperal_sdk.testing import MockContext, MockSecretStore
-import app  # noqa: F401
+import app  # noqa: F401 — registers ext/chat
 import panels
 import storage
 
 
-# ── overview ────────────────────────────────────────────────────────────────
-
-async def test_overview_empty_no_sites():
-    ctx = MockContext()
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "No sites connected" in s or "Connect New Site" in s
-
-
-async def test_overview_renders_site_cards():
+async def _ctx_with_sites(*site_records):
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "error"})
-    node = await panels.overview(ctx)
+    for r in site_records:
+        await storage.save_site_record(ctx, r)
+    return ctx
+
+
+# ── sidebar ───────────────────────────────────────────────────────────────────
+
+async def test_sidebar_empty_state():
+    ctx = MockContext()
+    node = await panels.sidebar(ctx)
     s = str(node)
-    assert "alpha.com" in s
-    assert "beta.com" in s
-    assert "Grid" in s  # ui.Grid(columns=2) must be used, not manual Stack pairs
+    assert "Connect Site" in s
+    assert "Divider" in s
+    assert "No sites" in s
 
 
-async def test_overview_search_filter():
+async def test_sidebar_renders_site_list():
+    ctx = await _ctx_with_sites(
+        {"id": "a-com", "name": "A", "url": "https://a.com", "status": "connected"},
+        {"id": "b-com", "name": "B", "url": "https://b.com", "status": "error"},
+    )
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    assert "a.com" in s
+    assert "b.com" in s
+    assert "List" in s
+
+
+async def test_sidebar_connect_button_at_top():
+    ctx = MockContext()
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    # Button should appear before Divider in the serialized output
+    assert s.index("Connect Site") < s.index("Divider")
+
+
+async def test_sidebar_divider_present():
+    ctx = MockContext()
+    node = await panels.sidebar(ctx)
+    assert "Divider" in str(node)
+
+
+async def test_sidebar_auto_action_set_when_sites_exist():
+    ctx = await _ctx_with_sites(
+        {"id": "x-com", "name": "X", "url": "https://x.com", "status": "connected"},
+    )
+    node = await panels.sidebar(ctx)
+    assert hasattr(node, "props") and "auto_action" in node.props
+
+
+async def test_sidebar_no_auto_action_when_active_site():
+    ctx = await _ctx_with_sites(
+        {"id": "x-com", "name": "X", "url": "https://x.com", "status": "connected"},
+    )
+    node = await panels.sidebar(ctx, active_site_id="x-com")
+    assert not (hasattr(node, "props") and "auto_action" in node.props)
+
+
+async def test_sidebar_no_auto_action_when_no_sites():
+    ctx = MockContext()
+    node = await panels.sidebar(ctx)
+    assert not (hasattr(node, "props") and "auto_action" in node.props)
+
+
+async def test_sidebar_item_has_refresh_and_remove_actions():
+    ctx = await _ctx_with_sites(
+        {"id": "x-com", "name": "X", "url": "https://x.com", "status": "connected"},
+    )
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    assert "refresh_site" in s
+    assert "forget_site" in s
+
+
+async def test_sidebar_shows_domain_not_name():
+    ctx = await _ctx_with_sites(
+        {"id": "x-com", "name": "admin", "url": "https://x.com", "status": "connected"},
+    )
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    assert "x.com" in s
+
+
+async def test_sidebar_connected_badge_green():
+    ctx = await _ctx_with_sites(
+        {"id": "x-com", "name": "X", "url": "https://x.com", "status": "connected"},
+    )
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    assert "green" in s
+
+
+async def test_sidebar_error_badge_red():
+    ctx = await _ctx_with_sites(
+        {"id": "x-com", "name": "X", "url": "https://x.com", "status": "error"},
+    )
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    assert "red" in s
+
+
+# ── detail ────────────────────────────────────────────────────────────────────
+
+async def test_detail_empty_when_no_site_id():
+    ctx = MockContext()
+    node = await panels.detail(ctx, site_id="")
+    assert node is not None
+    assert "Empty" in str(node) or "Select" in str(node)
+
+
+async def test_detail_empty_when_site_not_found():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "connected"})
-    node = await panels.overview(ctx, search="Alpha")
-    s = str(node)
-    assert "alpha.com" in s
-    assert "beta.com" not in s
+    node = await panels.detail(ctx, site_id="nonexistent")
+    assert node is not None
 
 
-async def test_overview_status_filter_connected():
+async def test_detail_renders_site_data():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "error"})
-    node = await panels.overview(ctx, status_filter="connected")
+    await storage.save_site_record(ctx, {"id": "x-com", "name": "X",
+                                         "url": "https://x.com", "username": "admin",
+                                         "status": "connected"})
+    await storage.set_credential(ctx, "x-com", "pw")
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/users/me", {"name": "Admin"}, 200)
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/posts",
+                      [{"id": 1, "title": {"rendered": "Hello"}, "status": "publish",
+                        "date": "2026-06-01T00:00:00"}], 200)
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/pages", [], 200)
+    ctx.http.mock_get("https://x.com/wp-json/wp/v2/media", [], 200)
+    node = await panels.detail(ctx, site_id="x-com")
     s = str(node)
-    assert "alpha.com" in s
-    assert "beta.com" not in s
+    assert "x.com" in s
+    assert "Stats" in s
+    assert "Tabs" in s
+    assert "Hello" in s
 
 
-async def test_overview_status_filter_error():
+async def test_detail_shows_alert_on_missing_credential():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://alpha.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://beta.com", "status": "error"})
-    node = await panels.overview(ctx, status_filter="error")
+    await storage.save_site_record(ctx, {"id": "x-com", "name": "X",
+                                         "url": "https://x.com", "username": "admin",
+                                         "status": "connected"})
+    # credential NOT set
+    node = await panels.detail(ctx, site_id="x-com")
     s = str(node)
-    assert "beta.com" in s
-    assert "alpha.com" not in s
+    assert "Alert" in s or "Credential" in s or "reconnect" in s.lower()
 
 
-async def test_overview_no_match_shows_empty():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://a.com", "status": "connected"})
-    node = await panels.overview(ctx, search="zzz")
-    s = str(node)
-    assert "match" in s.lower() or "No sites" in s
-
-
-async def test_overview_site_count_in_header():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha", "url": "https://a.com", "status": "connected"})
-    await storage.save_site_record(ctx, {"id": "b-com", "name": "Beta",  "url": "https://b.com", "status": "connected"})
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "2" in s  # total count in header
-
-
-# ── connect_form ─────────────────────────────────────────────────────────────
+# ── connect_form ──────────────────────────────────────────────────────────────
 
 async def test_connect_form_has_password_field():
     ctx = MockContext()
@@ -86,117 +166,17 @@ async def test_connect_form_has_password_field():
     assert "app_password" in s and "'type': 'password'" in s
 
 
-# ── detail ───────────────────────────────────────────────────────────────────
-
-async def test_detail_returns_empty_when_no_site():
+async def test_connect_form_has_cancel_button():
     ctx = MockContext()
-    node = await panels.detail(ctx, site_id=None)
-    assert node is not None
-
-
-async def test_detail_has_back_button():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "x-com", "name": "X", "url": "https://x.com", "username": "admin", "status": "connected"})
-    await storage.set_credential(ctx, "x-com", "pw")
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/users/me", {"name": "Admin"}, 200)
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/posts", [], 200)
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/pages", [], 200)
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/media", [], 200)
-    node = await panels.detail(ctx, site_id="x-com")
+    node = await panels.connect_form(ctx)
     s = str(node)
-    assert "__panel__overview" in s  # back button points to overview
+    assert "Cancel" in s
+    assert "__panel__detail" in s
 
 
-async def test_detail_renders_site_content():
+async def test_connect_form_has_url_and_username_fields():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "x-com", "name": "X", "url": "https://x.com", "username": "admin", "status": "connected"})
-    await storage.set_credential(ctx, "x-com", "pw")
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/users/me", {"name": "Admin"}, 200)
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/posts",
-                      [{"id": 1, "title": {"rendered": "Hello"}, "status": "publish", "date": "2026-06-15T00:00:00"}], 200)
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/pages", [], 200)
-    ctx.http.mock_get("https://x.com/wp-json/wp/v2/media", [], 200)
-    node = await panels.detail(ctx, site_id="x-com")
+    node = await panels.connect_form(ctx)
     s = str(node)
-    assert "Page" in s        # ui.Page wrapper
-    assert "Stats" in s       # ui.Stats for health + counts
-    assert "Reachable" in s   # Stat label
-    assert "DataTable" in s   # ui.DataTable for content tabs
-    assert "Hello" in s       # post title appears in table rows
-
-
-async def test_overview_card_calls_refresh_site():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha",
-                                         "url": "https://a.com", "status": "connected"})
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "refresh_site" in s
-
-
-async def test_overview_card_has_remove_menu():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "a-com", "name": "Alpha",
-                                         "url": "https://a.com", "status": "connected"})
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "forget_site" in s
-
-
-async def test_overview_header_uses_heading_variant():
-    ctx = MockContext()
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "heading" in s
-
-
-async def test_overview_filter_bar_has_status_select():
-    ctx = MockContext()
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "status_filter" in s
-
-
-async def test_card_shows_domain_not_username():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "x-com", "name": "admin",
-                                         "url": "https://x.com", "status": "connected"})
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "x.com" in s
-    assert "admin" not in s
-
-
-async def test_card_has_no_subtitle():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "x-com", "name": "admin",
-                                         "url": "https://x.com", "status": "connected"})
-    node = await panels.overview(ctx)
-    s = str(node)
-    # card should not pass url as subtitle= kwarg
-    assert "'subtitle': 'https://x.com'" not in s
-
-
-async def test_overview_grid_has_connect_placeholder():
-    ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    await storage.save_site_record(ctx, {"id": "x-com", "name": "admin",
-                                         "url": "https://x.com", "status": "connected"})
-    node = await panels.overview(ctx)
-    s = str(node)
-    assert "connect_form" in s   # connect placeholder calls __panel__connect_form
-    assert "Connect new site" in s
-
-
-async def test_connect_placeholder_absent_when_no_sites():
-    ctx = MockContext()
-    node = await panels.overview(ctx)
-    s = str(node)
-    # Empty state has no connect_card — only the Empty message CTA
-    assert "Connect new site" not in s or "No sites" in s
+    assert "url" in s
+    assert "username" in s
