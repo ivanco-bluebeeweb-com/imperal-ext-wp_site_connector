@@ -66,6 +66,7 @@ async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
     if not record:
         return ActionResult.error("No connected site with that id.", retryable=False)
     await storage.delete_site_record(ctx, params.site_id)
+    await storage.clear_content_cache(ctx, params.site_id)
     try:
         await storage.delete_credential(ctx, params.site_id)
     except Exception as e:

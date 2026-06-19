@@ -159,27 +159,32 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         except Exception:
             return None
 
-    # Load health + active tab content in parallel
-    tab_path = {
-        "posts": "/wp-json/wp/v2/posts",
-        "pages": "/wp-json/wp/v2/pages",
-        "media": "/wp-json/wp/v2/media",
-    }.get(active_tab, "/wp-json/wp/v2/posts")
+    def _body(r):
+        return r.body if r and r.status_code == 200 and isinstance(r.body, list) else None
 
-    me, content_r = await asyncio.gather(
-        _get("/wp-json/wp/v2/users/me", 1),
-        _get(tab_path, 20),
-    )
-
-    reachable = me is not None
-    auth_ok = me is not None and me.status_code == 200
+    # Health stats come from the stored record (updated by the Refresh button).
+    reachable = record.get("status") == "connected"
+    auth_ok = reachable
     ssl_valid = base_url.startswith("https://")
 
-    items = (
-        content_r.body
-        if content_r and content_r.status_code == 200 and isinstance(content_r.body, list)
-        else None
-    )
+    # Content: serve from cache on tab switch; fetch all in parallel on first load.
+    cached = await storage.get_content_cache(ctx, site_id)
+    if cached:
+        posts_data = cached.get("posts")
+        pages_data = cached.get("pages")
+        media_data = cached.get("media")
+    else:
+        posts_r, pages_r, media_r = await asyncio.gather(
+            _get("/wp-json/wp/v2/posts", 20),
+            _get("/wp-json/wp/v2/pages", 20),
+            _get("/wp-json/wp/v2/media", 20),
+        )
+        posts_data = _body(posts_r)
+        pages_data = _body(pages_r)
+        media_data = _body(media_r)
+        await storage.set_content_cache(ctx, site_id, posts_data, pages_data, media_data)
+
+    items = {"posts": posts_data, "pages": pages_data, "media": media_data}.get(active_tab)
 
     health_stats = ui.Stats(columns=3, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",

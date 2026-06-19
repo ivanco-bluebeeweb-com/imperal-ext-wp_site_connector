@@ -59,3 +59,33 @@ async def delete_credential(ctx, site_id):
     doc = await _find_doc(ctx, CREDS_COLLECTION, site_id)
     if doc:
         await ctx.store.delete(CREDS_COLLECTION, doc.id)
+
+
+# ── Content cache (posts/pages/media fetched once, tabs switch from cache) ────
+
+CACHE_COLLECTION = "wp_cache"
+
+
+async def get_content_cache(ctx, site_id):
+    doc = await _find_doc(ctx, CACHE_COLLECTION, site_id)
+    return doc.data if doc else None
+
+
+async def set_content_cache(ctx, site_id, posts, pages, media):
+    data = {
+        "site_id": site_id,
+        "posts":   posts or [],
+        "pages":   pages or [],
+        "media":   media or [],
+    }
+    doc = await _find_doc(ctx, CACHE_COLLECTION, site_id)
+    if doc:
+        await ctx.store.update(CACHE_COLLECTION, doc.id, data)
+    else:
+        await ctx.store.create(CACHE_COLLECTION, data)
+
+
+async def clear_content_cache(ctx, site_id):
+    doc = await _find_doc(ctx, CACHE_COLLECTION, site_id)
+    if doc:
+        await ctx.store.delete(CACHE_COLLECTION, doc.id)

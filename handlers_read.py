@@ -156,6 +156,7 @@ async def refresh_site(ctx, params: SiteIdParams) -> ActionResult:
     status = "connected" if 200 <= r.status_code < 300 else "error"
     record = await storage.get_site_record(ctx, params.site_id) or {}
     await storage.save_site_record(ctx, {**record, "status": status, "last_checked": now_iso()})
+    await storage.clear_content_cache(ctx, params.site_id)
     name = record.get("name", params.site_id)
     site = Site(id=params.site_id, title=name, kind="wp_site",
                 url=base_url, username=username, status=status)
