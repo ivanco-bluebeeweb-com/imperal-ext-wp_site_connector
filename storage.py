@@ -1,5 +1,7 @@
 import json
 
+from imperal_sdk import SecretVaultUnavailable
+
 SITES_COLLECTION = "sites"
 SECRET_NAME = "wp_credentials"
 
@@ -38,7 +40,11 @@ async def delete_site_record(ctx, site_id):
 
 
 async def _load_map(ctx):
-    raw = await ctx.secrets.get(SECRET_NAME)
+    try:
+        raw = await ctx.secrets.get(SECRET_NAME)
+    except SecretVaultUnavailable:
+        await ctx.log("wp_credentials vault unavailable — credential read skipped", level="error")
+        return {}
     return json.loads(raw) if raw else {}
 
 

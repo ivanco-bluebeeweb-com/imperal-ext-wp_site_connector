@@ -25,14 +25,13 @@ def _site_card(record):
     return ui.Card(
         content=ui.Stack(direction="h", justify="between", align="center", children=[
             ui.Badge(label="", color="green" if is_ok else "red"),
-            ui.Text(name),
+            ui.Link(label=name, on_click=ui.Call("__panel__detail", site_id=site_id)),
         ]),
         footer=ui.Stack(direction="h", gap=1, children=[refresh_btn, menu]),
-        on_click=ui.Call("__panel__detail", site_id=site_id),
     )
 
 
-@ext.panel("overview", slot="center", title="WP Sites")
+@ext.panel("overview", slot="center", center_overlay=True, title="WP Sites")
 async def overview(ctx, search="", status_filter="", **kwargs):
     """Single-panel monitoring overview: searchable, filterable 3-column grid of site cards with status Select filter."""
     rows = await storage.list_site_records(ctx)
@@ -131,7 +130,7 @@ def _content_tab(label, items):
     return {"label": label, "content": ui.DataTable(columns=columns, rows=rows)}
 
 
-@ext.panel("detail", slot="center", title="Site")
+@ext.panel("detail", slot="center", center_overlay=True, title="Site")
 async def detail(ctx, site_id=None, **kwargs):
     """Center panel: site dashboard — health status, content counts, and content tabs."""
     if not site_id:

@@ -1,11 +1,10 @@
 import asyncio
-from datetime import datetime, timezone
 
 from imperal_sdk import ActionResult, sdl
 from app import chat
 from models import (_NoParams, Site, ListContentParams, ListMediaParams,
                     Post, Page, MediaItem, SiteIdParams, SiteHealth)
-from wp_client import wp_get, wp_error_message, wp_title
+from wp_client import wp_get, wp_error_message, wp_title, now_iso
 import storage
 
 
@@ -134,10 +133,6 @@ async def get_site_health(ctx, params: SiteIdParams) -> ActionResult:
     )
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 @chat.function(
     "refresh_site",
     description="Re-check connectivity and auth for a connected WordPress site and update its stored status.",
@@ -160,7 +155,7 @@ async def refresh_site(ctx, params: SiteIdParams) -> ActionResult:
         return ActionResult.error("Could not reach the site — try again.", retryable=True)
     status = "connected" if 200 <= r.status_code < 300 else "error"
     record = await storage.get_site_record(ctx, params.site_id) or {}
-    await storage.save_site_record(ctx, {**record, "status": status, "last_checked": _now()})
+    await storage.save_site_record(ctx, {**record, "status": status, "last_checked": now_iso()})
     name = record.get("name", params.site_id)
     site = Site(id=params.site_id, title=name, kind="wp_site",
                 url=base_url, username=username, status=status)

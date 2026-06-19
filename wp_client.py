@@ -1,5 +1,6 @@
 import base64
 import re
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 _ERROR_MESSAGES = {
@@ -39,6 +40,11 @@ def wp_error_message(status_code: int) -> str:
 async def wp_get(ctx, base_url, path, *, username, app_password, params=None):
     headers = basic_auth_header(username, app_password)
     return await ctx.http.get(f"{base_url}{path}", headers=headers, params=params)
+
+
+def now_iso() -> str:
+    """Current UTC timestamp as ISO 8601 string."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def wp_title(item: dict) -> str:

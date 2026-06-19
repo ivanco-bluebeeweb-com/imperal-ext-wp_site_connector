@@ -1,26 +1,24 @@
-from datetime import datetime, timezone
+from urllib.parse import urlparse
 
-from app import chat
+from app import ext, chat
 from imperal_sdk import ActionResult
 from models import ConnectSiteParams, SiteIdParams, Site
-from wp_client import normalize_base_url, site_id_from_url, wp_get, wp_error_message
+from wp_client import normalize_base_url, site_id_from_url, wp_get, wp_error_message, now_iso
 import storage
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-@chat.function(
+@ext.tool(
     "connect_site",
-    description="Connect a WordPress site by URL, username, and Application Password. Creates under Users → Profile → Application Passwords in WordPress admin.",
-    action_type="write",
-    data_model=Site,
-    effects=["wp.connect"],
-    event="wp-site-connector.connect_site",
+    scopes=[],
+    description="Connect a WordPress site via the connection form. Receives URL, username, and Application Password from the form — never called by the LLM directly.",
 )
-async def connect_site(ctx, params: ConnectSiteParams) -> ActionResult:
+async def connect_site(ctx, **kwargs) -> ActionResult:
     """Validate WP credentials via /users/me, then persist the site record and its Application Password."""
+    try:
+        params = ConnectSiteParams(**kwargs)
+    except Exception as e:
+        return ActionResult.error(f"Invalid form parameters: {e}", retryable=False)
+
     try:
         base_url = normalize_base_url(params.url)
     except ValueError:
@@ -34,15 +32,13 @@ async def connect_site(ctx, params: ConnectSiteParams) -> ActionResult:
         await ctx.log(f"connect_site http error: {e}", level="error")
         return ActionResult.error("Could not reach the site — check the URL and try again.", retryable=True)
 
-    if r.status_code != 200:
+    if not (200 <= r.status_code < 300):
         return ActionResult.error(wp_error_message(r.status_code),
                                   retryable=r.status_code >= 500 or r.status_code == 429)
 
-    body = r.body if isinstance(r.body, dict) else {}
-    from urllib.parse import urlparse
     name = urlparse(base_url).netloc or base_url
     record = {"id": site_id, "name": name, "url": base_url, "username": params.username,
-              "status": "connected", "last_checked": _now()}
+              "status": "connected", "last_checked": now_iso()}
     await storage.save_site_record(ctx, record)
     await storage.set_credential(ctx, site_id, params.app_password)
     site = Site(id=site_id, title=name, kind="wp_site", url=base_url,
@@ -50,8 +46,8 @@ async def connect_site(ctx, params: ConnectSiteParams) -> ActionResult:
     return ActionResult.success(site, summary=f"Connected {name}", refresh_panels=["overview"])
 
 
-# forget_site IS a @chat.function with action_type="destructive": the web-kernel shows the
-# KAV confirmation card automatically. It takes only site_id — no credential in args.
+# forget_site IS LLM-visible by design: takes only site_id (no credential in args).
+# The web-kernel shows the KAV confirmation card automatically for action_type="destructive".
 @chat.function(
     "forget_site",
     description="Disconnect a WordPress site and delete its stored credential.",
