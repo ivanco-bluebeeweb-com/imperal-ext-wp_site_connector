@@ -400,15 +400,7 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
                 color="green" if ssl_valid else "red"),
     ])
 
-    # ── Tab bar ──
-    def _btn(label, key):
-        return ui.Button(
-            label,
-            variant="secondary" if active_tab == key else "ghost",
-            size="sm",
-            on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
-        )
-
+    # ── Tab selector ──
     tab_defs = [
         ("Posts", "posts"), ("Pages", "pages"), ("Media", "media"),
         ("Comments", "comments"), ("Scheduled", "scheduled"), ("Users", "users"),
@@ -420,9 +412,11 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     for slug, meta in tax_meta.items():
         tab_defs.append((meta["name"], f"tax:{slug}"))
 
-    tab_bar = ui.Stack(
-        children=[_btn(label, key) for label, key in tab_defs],
-        direction="h", gap=1, sticky=True,
+    tab_bar = ui.Select(
+        options=[{"value": key, "label": label} for label, key in tab_defs],
+        value=active_tab,
+        param_name="active_tab",
+        on_change=ui.Call("__panel__center", view="", site_id=site_id),
     )
 
     return ui.Page(title=name, subtitle=base_url, children=[
