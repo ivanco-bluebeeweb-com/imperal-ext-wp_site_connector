@@ -2739,7 +2739,7 @@
   "signals": [],
   "schedules": [],
   "required_scopes": [],
-  "icon_size_bytes": 4597,
+  "icon_size_bytes": 4608,
   "lifecycle": {
     "health_check": {
       "interval_sec": 60

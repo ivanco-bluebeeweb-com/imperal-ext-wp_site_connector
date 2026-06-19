@@ -42,6 +42,24 @@ def _site_badge_color(r: dict) -> str:
     return "green"
 
 
+def _lamp(r: dict) -> ui.Html:
+    """8×8 solid dot with glow — status indicator on the left of the site name."""
+    color_map = {
+        "green":  ("#22c55e", "#22c55e"),
+        "yellow": ("#f59e0b", "#f59e0b"),
+        "red":    ("#ef4444", "#ef4444"),
+    }
+    key = _site_badge_color(r)
+    fill, shadow = color_map.get(key, ("#22c55e", "#22c55e"))
+    html = (
+        f'<body style="margin:0;padding:0;background:transparent;display:flex;align-items:center;height:100%">'
+        f'<div style="width:8px;height:8px;border-radius:50%;background:{fill};'
+        f'box-shadow:0 0 5px 2px {shadow}88;flex-shrink:0"></div>'
+        f'</body>'
+    )
+    return ui.Html(content=html, sandbox=False, max_height=20, theme="dark")
+
+
 @ext.panel(
     "sidebar",
     slot="left",
@@ -60,9 +78,12 @@ async def sidebar(ctx, active_site_id="", **kwargs):
     top_bar = ui.Stack(direction="h", gap=2, children=[
         ui.Button("Connect Site", icon="Plus", variant="primary",
                   on_click=ui.Call("__panel__center", view="connect", site_id="")),
-        ui.Button("Refresh All", icon="RefreshCw", variant="secondary",
-                  disabled=not rows,
-                  on_click=ui.Call("refresh_all_sites")),
+        ui.Tooltip(
+            content="Pings all connected sites in parallel, updates their stored status, and clears content caches so the next view fetches fresh data.",
+            children=ui.Button("Refresh All", icon="RefreshCw", variant="secondary",
+                               disabled=not rows,
+                               on_click=ui.Call("refresh_all_sites")),
+        ),
     ])
 
     if not rows:
@@ -73,7 +94,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
                 id=r["id"],
                 title=urlparse(r.get("url", "")).netloc or r.get("name", r["id"]),
                 subtitle=_site_subtitle(r),
-                badge=ui.Badge(color=_site_badge_color(r)),
+                avatar=_lamp(r),
                 selected=(active_site_id == r["id"]),
                 on_click=ui.Call("__panel__center", view="", site_id=r["id"]),
                 actions=[
