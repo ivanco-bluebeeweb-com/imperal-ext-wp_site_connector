@@ -1,24 +1,22 @@
 from urllib.parse import urlparse
 
-from app import ext, chat
+from app import chat
 from imperal_sdk import ActionResult
 from models import ConnectSiteParams, SiteIdParams, Site
 from wp_client import normalize_base_url, site_id_from_url, wp_get, wp_error_message, now_iso
 import storage
 
 
-@ext.tool(
+@chat.function(
     "connect_site",
-    scopes=[],
-    description="Connect a WordPress site via the connection form. Receives URL, username, and Application Password from the form — never called by the LLM directly.",
+    description="Connect a WordPress site by URL, username, and Application Password.",
+    action_type="write",
+    data_model=Site,
+    effects=["wp.connect"],
+    event="wp-site-connector.connect_site",
 )
-async def connect_site(ctx, **kwargs) -> ActionResult:
-    """Validate WP credentials via /users/me, then persist the site record and its Application Password."""
-    try:
-        params = ConnectSiteParams(**kwargs)
-    except Exception as e:
-        return ActionResult.error(f"Invalid form parameters: {e}", retryable=False)
-
+async def connect_site(ctx, params: ConnectSiteParams) -> ActionResult:
+    """Validate WP credentials via /users/me, then persist the site record and Application Password."""
     try:
         base_url = normalize_base_url(params.url)
     except ValueError:
@@ -46,6 +44,7 @@ async def connect_site(ctx, **kwargs) -> ActionResult:
         await ctx.log(f"connect_site: credential save failed: {e}", level="error")
         await storage.delete_site_record(ctx, site_id)
         return ActionResult.error("Could not save credentials — try again.", retryable=True)
+
     site = Site(id=site_id, title=name, kind="wp_site", url=base_url,
                 username=params.username, status="connected")
     return ActionResult.success(site, summary=f"Connected {name}", refresh_panels=["sidebar"])
