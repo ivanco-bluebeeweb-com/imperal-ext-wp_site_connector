@@ -40,7 +40,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
                 subtitle=r.get("status", "connected"),
                 badge=ui.Badge(color="green" if r.get("status") == "connected" else "red"),
                 selected=(active_site_id == r["id"]),
-                on_click=ui.Call("__panel__center", view="", site_id=r["id"], active_tab="posts"),
+                on_click=ui.Call("__panel__center", view="", site_id=r["id"]),
                 actions=[
                     {"icon": "RefreshCw",
                      "on_click": ui.Call("refresh_site", site_id=r["id"])},
@@ -57,7 +57,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 
     if not active_site_id and rows:
         root.props["auto_action"] = ui.Call(
-            "__panel__center", view="", site_id=rows[0]["id"], active_tab="posts"
+            "__panel__center", view="", site_id=rows[0]["id"]
         )
 
     return root
@@ -66,12 +66,12 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 # ── Single center panel — branches on `view` and `active_tab` kwargs ──────────
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
-async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
-    """Single center overlay: connect form or site detail with tab switching."""
+async def center(ctx, view="", site_id="", **kwargs):
+    """Single center overlay: connect form or site detail."""
     if view == "connect":
         return _render_connect_form()
     if site_id:
-        return await _render_detail(ctx, site_id, active_tab)
+        return await _render_detail(ctx, site_id)
     return ui.Empty(message="Select a site from the list to view its dashboard.")
 
 
@@ -106,22 +106,6 @@ def _render_connect_form():
 
 
 # ── Site detail with manual tab switching ─────────────────────────────────────
-
-def _tab_bar(site_id, active_tab):
-    """Manual tab buttons — ui.Tabs is not a client-side switcher in this platform."""
-    def _btn(label, key):
-        return ui.Button(
-            label,
-            variant="secondary" if active_tab == key else "ghost",
-            size="sm",
-            on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
-        )
-    return ui.Stack(
-        children=[_btn("Posts", "posts"), _btn("Pages", "pages"), _btn("Media", "media")],
-        direction="h",
-        gap=1,
-        sticky=True,
-    )
 
 
 def _render_content_table(items, tab):
@@ -168,13 +152,6 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     username = record.get("username", "")
     name = urlparse(base_url).netloc or record.get("name", site_id)
 
-    # Fetch health + only the active tab's content in parallel
-    tab_path = {
-        "posts": "/wp-json/wp/v2/posts",
-        "pages": "/wp-json/wp/v2/pages",
-        "media": "/wp-json/wp/v2/media",
-    }.get(active_tab, "/wp-json/wp/v2/posts")
-
     async def _get(path, per_page):
         try:
             return await wp_get(ctx, base_url, path, username=username, app_password=pw,
@@ -182,20 +159,22 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         except Exception:
             return None
 
-    me, content_r = await asyncio.gather(
+    # Load all endpoints in parallel
+    me, posts_r, pages_r, media_r = await asyncio.gather(
         _get("/wp-json/wp/v2/users/me", 1),
-        _get(tab_path, 20),
+        _get("/wp-json/wp/v2/posts", 20),
+        _get("/wp-json/wp/v2/pages", 20),
+        _get("/wp-json/wp/v2/media", 20),
     )
+
+    def _items(r):
+        if r and r.status_code == 200 and isinstance(r.body, list):
+            return r.body
+        return None
 
     reachable = me is not None
     auth_ok = me is not None and me.status_code == 200
     ssl_valid = base_url.startswith("https://")
-
-    items = (
-        content_r.body
-        if content_r and content_r.status_code == 200 and isinstance(content_r.body, list)
-        else None
-    )
 
     health_stats = ui.Stats(columns=3, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",
@@ -206,8 +185,13 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
                 color="green" if ssl_valid else "red"),
     ])
 
+    tabs = ui.Tabs(default_tab=0, tabs=[
+        {"label": "Posts",  "content": _render_content_table(_items(posts_r), "posts")},
+        {"label": "Pages",  "content": _render_content_table(_items(pages_r), "pages")},
+        {"label": "Media",  "content": _render_content_table(_items(media_r), "media")},
+    ])
+
     return ui.Page(title=name, subtitle=base_url, children=[
         health_stats,
-        _tab_bar(site_id, active_tab),
-        _render_content_table(items, active_tab),
+        tabs,
     ])
