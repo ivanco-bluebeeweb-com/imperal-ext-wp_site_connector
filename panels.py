@@ -40,7 +40,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
                 subtitle=r.get("status", "connected"),
                 badge=ui.Badge(color="green" if r.get("status") == "connected" else "red"),
                 selected=(active_site_id == r["id"]),
-                on_click=ui.Call("__panel__center", view="", site_id=r["id"]),
+                on_click=ui.Call("__panel__center", view="", site_id=r["id"], active_tab="posts"),
                 actions=[
                     {"icon": "RefreshCw",
                      "on_click": ui.Call("refresh_site", site_id=r["id"])},
@@ -57,7 +57,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 
     if not active_site_id and rows:
         root.props["auto_action"] = ui.Call(
-            "__panel__center", view="", site_id=rows[0]["id"]
+            "__panel__center", view="", site_id=rows[0]["id"], active_tab="posts"
         )
 
     return root
@@ -66,12 +66,12 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 # ── Single center panel — branches on `view` and `active_tab` kwargs ──────────
 
 @ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
-async def center(ctx, view="", site_id="", **kwargs):
+async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
     """Single center overlay: connect form or site detail."""
     if view == "connect":
         return _render_connect_form()
     if site_id:
-        return await _render_detail(ctx, site_id)
+        return await _render_detail(ctx, site_id, active_tab)
     return ui.Empty(message="Select a site from the list to view its dashboard.")
 
 
@@ -159,22 +159,27 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         except Exception:
             return None
 
-    # Load all endpoints in parallel
-    me, posts_r, pages_r, media_r = await asyncio.gather(
-        _get("/wp-json/wp/v2/users/me", 1),
-        _get("/wp-json/wp/v2/posts", 20),
-        _get("/wp-json/wp/v2/pages", 20),
-        _get("/wp-json/wp/v2/media", 20),
-    )
+    # Load health + active tab content in parallel
+    tab_path = {
+        "posts": "/wp-json/wp/v2/posts",
+        "pages": "/wp-json/wp/v2/pages",
+        "media": "/wp-json/wp/v2/media",
+    }.get(active_tab, "/wp-json/wp/v2/posts")
 
-    def _items(r):
-        if r and r.status_code == 200 and isinstance(r.body, list):
-            return r.body
-        return None
+    me, content_r = await asyncio.gather(
+        _get("/wp-json/wp/v2/users/me", 1),
+        _get(tab_path, 20),
+    )
 
     reachable = me is not None
     auth_ok = me is not None and me.status_code == 200
     ssl_valid = base_url.startswith("https://")
+
+    items = (
+        content_r.body
+        if content_r and content_r.status_code == 200 and isinstance(content_r.body, list)
+        else None
+    )
 
     health_stats = ui.Stats(columns=3, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",
@@ -185,13 +190,21 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
                 color="green" if ssl_valid else "red"),
     ])
 
-    tabs = ui.Tabs(default_tab=0, tabs=[
-        {"label": "Posts",  "content": _render_content_table(_items(posts_r), "posts")},
-        {"label": "Pages",  "content": _render_content_table(_items(pages_r), "pages")},
-        {"label": "Media",  "content": _render_content_table(_items(media_r), "media")},
-    ])
+    def _tab_btn(label, key):
+        return ui.Button(
+            label,
+            variant="secondary" if active_tab == key else "ghost",
+            size="sm",
+            on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
+        )
+
+    tab_bar = ui.Stack(
+        children=[_tab_btn("Posts", "posts"), _tab_btn("Pages", "pages"), _tab_btn("Media", "media")],
+        direction="h", gap=1, sticky=True,
+    )
 
     return ui.Page(title=name, subtitle=base_url, children=[
         health_stats,
-        tabs,
+        tab_bar,
+        _render_content_table(items, active_tab),
     ])
