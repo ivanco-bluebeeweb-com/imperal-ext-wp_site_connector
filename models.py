@@ -92,7 +92,9 @@ class ServerInfo(sdl.Entity):
     wp_version: str = ""
     php_version: str = ""
     plugin_updates: int = 0
+    plugin_updates_list: list = Field(default_factory=list)
     theme_updates: int = 0
+    theme_updates_list: list = Field(default_factory=list)
     core_update: bool = False
     core_update_version: str = ""
     cron_count: int = 0

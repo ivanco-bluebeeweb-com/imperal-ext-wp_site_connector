@@ -2683,10 +2683,20 @@
             "title": "Plugin Updates",
             "type": "integer"
           },
+          "plugin_updates_list": {
+            "items": {},
+            "title": "Plugin Updates List",
+            "type": "array"
+          },
           "theme_updates": {
             "default": 0,
             "title": "Theme Updates",
             "type": "integer"
+          },
+          "theme_updates_list": {
+            "items": {},
+            "title": "Theme Updates List",
+            "type": "array"
           },
           "core_update": {
             "default": false,

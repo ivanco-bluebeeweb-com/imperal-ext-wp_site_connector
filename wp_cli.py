@@ -97,8 +97,8 @@ async def get_server_info(cred: dict) -> dict:
     commands = [
         f"wp core version --path={wp_path} --allow-root",
         f"wp eval 'echo PHP_VERSION;' --path={wp_path} --allow-root",
-        f"wp plugin list --update=available --format=count --path={wp_path} --allow-root",
-        f"wp theme list --update=available --format=count --path={wp_path} --allow-root",
+        f"wp plugin list --update=available --format=json --fields=name,title,version,update_version --path={wp_path} --allow-root",
+        f"wp theme list --update=available --format=json --fields=name,title,version,update_version --path={wp_path} --allow-root",
         f"wp core check-update --format=json --path={wp_path} --allow-root",
         f"wp cron event list --format=count --path={wp_path} --allow-root",
         f"wp db size --size_format=mb --path={wp_path} --allow-root",
@@ -111,7 +111,19 @@ async def get_server_info(cred: dict) -> dict:
 
     (wp_r, php_r, plug_r, theme_r, core_r, cron_r, db_r) = results
 
-    # Parse core update JSON
+    def _parse_list(raw) -> list:
+        if not raw[0]:
+            return []
+        try:
+            data = json.loads(raw[0])
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    plugin_list = _parse_list(plug_r)
+    theme_list  = _parse_list(theme_r)
+
+    # Parse core update
     core_update = False
     core_update_ver = ""
     if core_r[0]:
@@ -130,8 +142,10 @@ async def get_server_info(cred: dict) -> dict:
     return {
         "wp_version":          (wp_r[0] or "").strip(),
         "php_version":         (php_r[0] or "").strip(),
-        "plugin_updates":      _int(plug_r),
-        "theme_updates":       _int(theme_r),
+        "plugin_updates":      len(plugin_list),
+        "plugin_updates_list": plugin_list,
+        "theme_updates":       len(theme_list),
+        "theme_updates_list":  theme_list,
         "core_update":         core_update,
         "core_update_version": core_update_ver,
         "cron_count":          _int(cron_r),

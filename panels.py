@@ -513,19 +513,48 @@ async def _render_server_tab(ctx, site_id, name, base_url, ssh_cred,
         ui.Stat(label="Cron Jobs", value=str(info["cron_count"]), color="blue"),
     ])
 
-    rows = [
-        {"check": "WordPress core",   "status": f"Update to {info['core_update_version']} available" if info["core_update"] else "Up to date",  "action": "⚠️" if info["core_update"] else "✅"},
-        {"check": "Plugins",          "status": f"{info['plugin_updates']} update(s) available" if info["plugin_updates"] else "All up to date", "action": "⚠️" if info["plugin_updates"] else "✅"},
-        {"check": "Themes",           "status": f"{info['theme_updates']} update(s) available" if info["theme_updates"] else "All up to date",  "action": "⚠️" if info["theme_updates"] else "✅"},
+    summary_rows = [
+        {"check": "WordPress core", "status": f"Update to {info['core_update_version']} available" if info["core_update"] else "Up to date", "flag": "⚠️" if info["core_update"] else "✅"},
+        {"check": "Plugins",        "status": f"{info['plugin_updates']} update(s) available" if info["plugin_updates"] else "All up to date", "flag": "⚠️" if info["plugin_updates"] else "✅"},
+        {"check": "Themes",         "status": f"{info['theme_updates']} update(s) available" if info["theme_updates"] else "All up to date", "flag": "⚠️" if info["theme_updates"] else "✅"},
     ]
     update_table = ui.DataTable(
         columns=[
+            ui.DataColumn("flag",   "",       sortable=False),
             ui.DataColumn("check",  "Check",  sortable=False),
             ui.DataColumn("status", "Status", sortable=False),
-            ui.DataColumn("action", "",       sortable=False),
         ],
-        rows=rows,
+        rows=summary_rows,
     )
+
+    # Plugin update details
+    plugin_table = None
+    if info.get("plugin_updates_list"):
+        plugin_table = ui.DataTable(
+            columns=[
+                ui.DataColumn("title",          "Plugin",           sortable=True),
+                ui.DataColumn("version",        "Current",          sortable=True),
+                ui.DataColumn("update_version", "Available",        sortable=True),
+            ],
+            rows=[{"title": p.get("title") or p.get("name", ""),
+                   "version": p.get("version", ""),
+                   "update_version": p.get("update_version", "")}
+                  for p in info["plugin_updates_list"]],
+        )
+
+    theme_table = None
+    if info.get("theme_updates_list"):
+        theme_table = ui.DataTable(
+            columns=[
+                ui.DataColumn("title",          "Theme",            sortable=True),
+                ui.DataColumn("version",        "Current",          sortable=True),
+                ui.DataColumn("update_version", "Available",        sortable=True),
+            ],
+            rows=[{"title": t.get("title") or t.get("name", ""),
+                   "version": t.get("version", ""),
+                   "update_version": t.get("update_version", "")}
+                  for t in info["theme_updates_list"]],
+        )
 
     tab_bar = ui.Select(
         options=[{"value": key, "label": label} for label, key in tab_defs],
@@ -545,11 +574,12 @@ async def _render_server_tab(ctx, site_id, name, base_url, ssh_cred,
         ui.Stat(label="SSH", value="Connected", color="green", icon="Terminal"),
     ])
 
-    return ui.Page(title=name, subtitle=base_url, children=[
-        health_stats,
-        ssh_btn,
-        tab_bar,
-        update_stat,
-        server_stats,
-        update_table,
-    ])
+    children = [health_stats, ssh_btn, tab_bar, update_stat, server_stats, update_table]
+    if plugin_table:
+        children.append(ui.Text("Plugins with updates", variant="heading"))
+        children.append(plugin_table)
+    if theme_table:
+        children.append(ui.Text("Themes with updates", variant="heading"))
+        children.append(theme_table)
+
+    return ui.Page(title=name, subtitle=base_url, children=children)
