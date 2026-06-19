@@ -535,15 +535,15 @@ async def _render_detail(ctx, site_id,
 
     def _btn(label, key, active, **override):
         """Button that preserves all tab states, overriding only the relevant one."""
+        call_kwargs = dict(view="", site_id=site_id,
+                           std_tab=std_tab, act_tab=act_tab,
+                           cpt_tab=cpt_tab, tax_tab=tax_tab)
+        call_kwargs.update(override)
         return ui.Button(
             label,
             variant="secondary" if active == key else "ghost",
             size="sm",
-            on_click=ui.Call("__panel__center",
-                             view="", site_id=site_id,
-                             std_tab=std_tab, act_tab=act_tab,
-                             cpt_tab=cpt_tab, tax_tab=tax_tab,
-                             **override),
+            on_click=ui.Call("__panel__center", **call_kwargs),
         )
 
     def _section(label, buttons, tab_key):
