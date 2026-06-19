@@ -29,6 +29,16 @@ class _NoParams(BaseModel):
     pass
 
 
+class AddSSHParams(BaseModel):
+    site_id: str = Field(description="Site id from a previous list_sites call — never invent it")
+    ssh_host: str = Field(description="SSH hostname or IP address of the server")
+    ssh_port: int = Field(default=22, description="SSH port (default 22)")
+    ssh_user: str = Field(description="SSH username")
+    wp_path: str = Field(description="Absolute path to the WordPress installation on the server, e.g. /var/www/html")
+    ssh_key: str = Field(default="", description="SSH private key in PEM format. Use this OR ssh_password.")
+    ssh_password: str = Field(default="", description="SSH password. Use this OR ssh_key.")
+
+
 class ListCommentsParams(BaseModel):
     site_id: str = Field(description="Site id from a previous list_sites call — never invent it")
     status: str = Field(default="hold", description="Comment status: 'hold' (pending moderation), 'approved', 'spam', or 'all'")
@@ -76,6 +86,17 @@ class WPUser(sdl.Entity):
 class Order(sdl.Entity):
     total: str = ""
     currency: str = ""
+
+
+class ServerInfo(sdl.Entity):
+    wp_version: str = ""
+    php_version: str = ""
+    plugin_updates: int = 0
+    theme_updates: int = 0
+    core_update: bool = False
+    core_update_version: str = ""
+    cron_count: int = 0
+    db_size_mb: str = ""
 
 
 class RefreshAllResult(sdl.Entity):

@@ -2,9 +2,10 @@ from urllib.parse import urlparse
 
 from app import chat
 from imperal_sdk import ActionResult
-from models import ConnectSiteParams, SiteIdParams, Site
+from models import ConnectSiteParams, SiteIdParams, Site, AddSSHParams
 from wp_client import normalize_base_url, site_id_from_url, wp_get, wp_error_message, now_iso
 import storage
+import wp_cli
 
 
 @chat.function(
@@ -74,6 +75,67 @@ async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
         await ctx.log(f"forget_site: credential cleanup failed: {e}", level="error")
     site = Site(id=params.site_id, title=record.get("name", params.site_id), kind="wp_site",
                 url=record.get("url", ""), username=record.get("username", ""), status="disconnected")
+    await storage.delete_ssh_cred(ctx, params.site_id)
     return ActionResult.success(
         site, summary=f"Disconnected {record.get('name', params.site_id)}",
         refresh_panels=["sidebar", "center"])
+
+
+@chat.function(
+    "add_ssh",
+    description="Add SSH access to a connected WordPress site to enable WP-CLI features: PHP version, plugin/theme/core update counts, cron jobs, database size.",
+    action_type="write",
+    data_model=Site,
+    effects=["wp.ssh_connect"],
+)
+async def add_ssh(ctx, params: AddSSHParams) -> ActionResult:
+    """Validate SSH connection + WP-CLI, then store credentials."""
+    if not params.ssh_key and not params.ssh_password:
+        return ActionResult.error("Provide either ssh_key or ssh_password.", retryable=False)
+
+    cred = {
+        "host": params.ssh_host,
+        "port": params.ssh_port,
+        "user": params.ssh_user,
+        "wp_path": params.wp_path,
+    }
+    if params.ssh_key:
+        cred["key"] = params.ssh_key
+    else:
+        cred["password"] = params.ssh_password
+
+    ok, msg = await wp_cli.test_connection(cred)
+    if not ok:
+        return ActionResult.error(f"SSH connection failed: {msg}", retryable=True)
+
+    await storage.set_ssh_cred(ctx, params.site_id, cred)
+    await storage.clear_content_cache(ctx, params.site_id)
+
+    record = await storage.get_site_record(ctx, params.site_id) or {}
+    site = Site(id=params.site_id, title=record.get("name", params.site_id),
+                kind="wp_site", url=record.get("url", ""),
+                username=record.get("username", ""), status="connected")
+    return ActionResult.success(
+        site,
+        summary=f"SSH connected to {params.ssh_host} — WordPress {msg}",
+        refresh_panels=["center"],
+    )
+
+
+@chat.function(
+    "remove_ssh",
+    description="Remove SSH access from a connected WordPress site.",
+    action_type="write",
+    data_model=Site,
+    effects=["wp.ssh_disconnect"],
+)
+async def remove_ssh(ctx, params: SiteIdParams) -> ActionResult:
+    """Delete stored SSH credentials for the site."""
+    await storage.delete_ssh_cred(ctx, params.site_id)
+    await storage.clear_content_cache(ctx, params.site_id)
+    record = await storage.get_site_record(ctx, params.site_id) or {}
+    site = Site(id=params.site_id, title=record.get("name", params.site_id),
+                kind="wp_site", url=record.get("url", ""),
+                username=record.get("username", ""), status="connected")
+    return ActionResult.success(site, summary="SSH access removed.",
+                                refresh_panels=["center"])

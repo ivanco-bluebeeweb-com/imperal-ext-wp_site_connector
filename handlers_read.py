@@ -4,7 +4,9 @@ from imperal_sdk import ActionResult, sdl
 from app import chat
 from models import (_NoParams, Site, ListContentParams, ListMediaParams,
                     Post, Page, MediaItem, SiteIdParams, SiteHealth, RefreshAllResult,
-                    ListCommentsParams, ListCustomPostsParams, Comment, WPUser, Order)
+                    ListCommentsParams, ListCustomPostsParams, Comment, WPUser, Order,
+                    ServerInfo)
+import wp_cli
 from wp_client import wp_get, wp_error_message, wp_title, now_iso
 import storage
 
@@ -363,3 +365,46 @@ async def list_custom_posts(ctx, params: ListCustomPostsParams) -> ActionResult:
                   date=p.get("date", "")) for p in data]
     return ActionResult.success(sdl.EntityList[Post](items=items),
                                 summary=f"{len(items)} {params.post_type} item(s)")
+
+
+@chat.function(
+    "get_server_info",
+    description="Get server information for a WordPress site via SSH + WP-CLI: PHP version, WordPress version, available plugin/theme/core updates, cron job count, database size. SSH must be configured first with add_ssh.",
+    action_type="read",
+    data_model=ServerInfo,
+)
+async def get_server_info(ctx, params: SiteIdParams) -> ActionResult:
+    """Run WP-CLI commands via SSH and return server/site diagnostics."""
+    cred = await storage.get_ssh_cred(ctx, params.site_id)
+    if not cred:
+        return ActionResult.error(
+            "SSH not configured for this site. Use add_ssh first.", retryable=False
+        )
+    try:
+        info = await wp_cli.get_server_info(cred)
+    except Exception as e:
+        await ctx.log(f"get_server_info: {e}", level="error")
+        return ActionResult.error("SSH connection failed — check credentials.", retryable=True)
+
+    if "error" in info:
+        return ActionResult.error(f"WP-CLI error: {info['error']}", retryable=True)
+
+    result = ServerInfo(
+        id=params.site_id,
+        title=f"Server: {params.site_id}",
+        kind="server_info",
+        wp_version=info["wp_version"],
+        php_version=info["php_version"],
+        plugin_updates=info["plugin_updates"],
+        theme_updates=info["theme_updates"],
+        core_update=info["core_update"],
+        core_update_version=info["core_update_version"],
+        cron_count=info["cron_count"],
+        db_size_mb=info["db_size_mb"],
+    )
+    updates = result.plugin_updates + result.theme_updates + (1 if result.core_update else 0)
+    icon = "⚠️" if updates else "✅"
+    summary = f"{icon} WP {result.wp_version} · PHP {result.php_version}"
+    if updates:
+        summary += f" · {updates} update(s) available"
+    return ActionResult.success(result, summary=summary)

@@ -279,6 +279,292 @@
       "owner_chat_tool": "wp-site-connector"
     },
     {
+      "name": "add_ssh",
+      "description": "Add SSH access to a connected WordPress site to enable WP-CLI features: PHP version, plugin/theme/core update counts, cron jobs, database size.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [
+        "wp.ssh_connect"
+      ],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "site_id": {
+            "description": "Site id from a previous list_sites call — never invent it",
+            "title": "Site Id",
+            "type": "string"
+          },
+          "ssh_host": {
+            "description": "SSH hostname or IP address of the server",
+            "title": "Ssh Host",
+            "type": "string"
+          },
+          "ssh_port": {
+            "default": 22,
+            "description": "SSH port (default 22)",
+            "title": "Ssh Port",
+            "type": "integer"
+          },
+          "ssh_user": {
+            "description": "SSH username",
+            "title": "Ssh User",
+            "type": "string"
+          },
+          "wp_path": {
+            "description": "Absolute path to the WordPress installation on the server, e.g. /var/www/html",
+            "title": "Wp Path",
+            "type": "string"
+          },
+          "ssh_key": {
+            "default": "",
+            "description": "SSH private key in PEM format. Use this OR ssh_password.",
+            "title": "Ssh Key",
+            "type": "string"
+          },
+          "ssh_password": {
+            "default": "",
+            "description": "SSH password. Use this OR ssh_key.",
+            "title": "Ssh Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "ssh_host",
+          "ssh_user",
+          "wp_path"
+        ],
+        "title": "AddSSHParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "username": {
+            "default": "",
+            "title": "Username",
+            "type": "string"
+          },
+          "last_checked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Checked"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "Site",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "wp-site-connector"
+    },
+    {
+      "name": "remove_ssh",
+      "description": "Remove SSH access from a connected WordPress site.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [
+        "wp.ssh_disconnect"
+      ],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "site_id": {
+            "description": "Site id from a previous list_sites call — never invent it",
+            "title": "Site Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id"
+        ],
+        "title": "SiteIdParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "username": {
+            "default": "",
+            "title": "Username",
+            "type": "string"
+          },
+          "last_checked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Checked"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "Site",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "wp-site-connector"
+    },
+    {
       "name": "list_sites",
       "description": "List the WordPress sites the user has connected.",
       "action_type": "read",
@@ -2284,6 +2570,152 @@
         "title": "EntityList[Post]",
         "type": "object",
         "x-sdl": "entity-list"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "wp-site-connector"
+    },
+    {
+      "name": "get_server_info",
+      "description": "Get server information for a WordPress site via SSH + WP-CLI: PHP version, WordPress version, available plugin/theme/core updates, cron job count, database size. SSH must be configured first with add_ssh.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "site_id": {
+            "description": "Site id from a previous list_sites call — never invent it",
+            "title": "Site Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id"
+        ],
+        "title": "SiteIdParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "wp_version": {
+            "default": "",
+            "title": "Wp Version",
+            "type": "string"
+          },
+          "php_version": {
+            "default": "",
+            "title": "Php Version",
+            "type": "string"
+          },
+          "plugin_updates": {
+            "default": 0,
+            "title": "Plugin Updates",
+            "type": "integer"
+          },
+          "theme_updates": {
+            "default": 0,
+            "title": "Theme Updates",
+            "type": "integer"
+          },
+          "core_update": {
+            "default": false,
+            "title": "Core Update",
+            "type": "boolean"
+          },
+          "core_update_version": {
+            "default": "",
+            "title": "Core Update Version",
+            "type": "string"
+          },
+          "cron_count": {
+            "default": 0,
+            "title": "Cron Count",
+            "type": "integer"
+          },
+          "db_size_mb": {
+            "default": "",
+            "title": "Db Size Mb",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ServerInfo",
+        "type": "object",
+        "x-sdl": "entity"
       },
       "event": "",
       "background": false,

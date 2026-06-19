@@ -5,6 +5,7 @@ from imperal_sdk import ui
 from app import ext
 from wp_client import wp_get, wp_title
 import storage
+import wp_cli
 
 # WordPress built-in types and taxonomies — skip these when showing custom ones
 _BUILTIN_TYPES = {
@@ -86,6 +87,8 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 async def center(ctx, view="", site_id="", active_tab="posts", **kwargs):
     if view == "connect":
         return _render_connect_form()
+    if view == "add_ssh" and site_id:
+        return _render_add_ssh_form(site_id)
     if site_id:
         return await _render_detail(ctx, site_id, active_tab)
     return ui.Empty(message="Select a site from the list to view its dashboard.")
@@ -98,6 +101,34 @@ def _field(label, help_text, input_node):
         ui.Tooltip(content=help_text, children=ui.Text(label)),
         input_node,
     ])
+
+
+def _render_add_ssh_form(site_id):
+    return ui.Stack(children=[
+        ui.Form(action="add_ssh", submit_label="Connect via SSH", children=[
+            ui.Input(param_name="site_id", value=site_id),
+            _field("SSH Host",
+                   "Hostname or IP address of the server, e.g. mysite.com or 192.168.1.1",
+                   ui.Input(param_name="ssh_host", placeholder="mysite.com")),
+            _field("SSH Port",
+                   "SSH port number (default is 22)",
+                   ui.Input(param_name="ssh_port", placeholder="22")),
+            _field("SSH User",
+                   "SSH username, e.g. root, ubuntu, deploy",
+                   ui.Input(param_name="ssh_user", placeholder="ubuntu")),
+            _field("WordPress Path",
+                   "Absolute path to WordPress on the server, e.g. /var/www/html",
+                   ui.Input(param_name="wp_path", placeholder="/var/www/html")),
+            _field("Private Key",
+                   "Paste your SSH private key (PEM format, begins with -----BEGIN). Leave empty to use password instead.",
+                   ui.TextArea(param_name="ssh_key", placeholder="-----BEGIN RSA PRIVATE KEY-----\n...", rows=6)),
+            _field("SSH Password",
+                   "SSH password. Leave empty if using a private key above.",
+                   ui.Password(param_name="ssh_password")),
+        ]),
+        ui.Button("Cancel", variant="ghost",
+                  on_click=ui.Call("__panel__center", view="", site_id=site_id)),
+    ], gap=4)
 
 
 def _render_connect_form():
@@ -248,6 +279,8 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     # Health from stored record; updated by Refresh button.
     reachable = record.get("status") == "connected"
     ssl_valid = base_url.startswith("https://")
+    ssh_cred = await storage.get_ssh_cred(ctx, site_id)
+    has_ssh = ssh_cred is not None
 
     cached = await storage.get_content_cache(ctx, site_id)
     # Treat cache as stale if CPT discovery hasn't run yet (older cache format)
@@ -388,16 +421,28 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
     for slug in tax_meta:
         content_map[f"tax:{slug}"] = dynamic.get(f"tax:{slug}")
 
+    # Server tab: fetch live via SSH (not cached — always fresh on vacation checks)
+    if active_tab == "server" and has_ssh:
+        return await _render_server_tab(ctx, site_id, name, base_url, ssh_cred,
+                                        reachable, ssl_valid, tab_defs)
+
     items = content_map.get(active_tab)
 
     # ── Health stats ──
-    health_stats = ui.Stats(columns=3, children=[
+    ssh_stat = ui.Stat(
+        label="SSH",
+        value="Connected" if has_ssh else "Not set up",
+        color="green" if has_ssh else "gray",
+        icon="Terminal",
+    )
+    health_stats = ui.Stats(columns=4, children=[
         ui.Stat(label="Reachable", value="Yes" if reachable else "No",
                 color="green" if reachable else "red"),
         ui.Stat(label="Auth",      value="OK" if reachable else "Failed",
                 color="green" if reachable else "red"),
         ui.Stat(label="SSL",       value="HTTPS" if ssl_valid else "HTTP",
                 color="green" if ssl_valid else "red"),
+        ssh_stat,
     ])
 
     # ── Tab selector ──
@@ -411,6 +456,8 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         tab_defs.append((meta["name"], f"cpt:{slug}"))
     for slug, meta in tax_meta.items():
         tab_defs.append((meta["name"], f"tax:{slug}"))
+    if has_ssh:
+        tab_defs.append(("Server", "server"))
 
     tab_bar = ui.Select(
         options=[{"value": key, "label": label} for label, key in tab_defs],
@@ -419,8 +466,87 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
         on_change=ui.Call("__panel__center", view="", site_id=site_id),
     )
 
+    ssh_btn = ui.Button(
+        "Remove SSH" if has_ssh else "Add SSH",
+        icon="Terminal",
+        variant="ghost",
+        size="sm",
+        on_click=ui.Call("remove_ssh", site_id=site_id) if has_ssh
+                 else ui.Call("__panel__center", view="add_ssh", site_id=site_id),
+    )
+
     return ui.Page(title=name, subtitle=base_url, children=[
         health_stats,
+        ssh_btn,
         tab_bar,
         _render_content_table(items, active_tab),
+    ])
+
+
+async def _render_server_tab(ctx, site_id, name, base_url, ssh_cred,
+                              reachable, ssl_valid, tab_defs):
+    """Server tab: runs WP-CLI via SSH and renders diagnostics. Always live, never cached."""
+    info = await wp_cli.get_server_info(ssh_cred)
+
+    if "error" in info:
+        return ui.Page(title=name, subtitle=base_url, children=[
+            ui.Alert(message=f"SSH/WP-CLI error: {info['error']}", type="error"),
+            ui.Button("Remove SSH", icon="Terminal", variant="ghost", size="sm",
+                      on_click=ui.Call("remove_ssh", site_id=site_id)),
+        ])
+
+    updates = info["plugin_updates"] + info["theme_updates"] + (1 if info["core_update"] else 0)
+
+    update_stat = ui.Stat(
+        label="Updates",
+        value=str(updates) if updates else "All up to date",
+        color="red" if updates else "green",
+    )
+
+    server_stats = ui.Stats(columns=4, children=[
+        ui.Stat(label="WordPress", value=info["wp_version"] or "—", color="blue"),
+        ui.Stat(label="PHP",       value=info["php_version"] or "—", color="blue"),
+        ui.Stat(label="Database",  value=f"{info['db_size_mb']} MB" if info["db_size_mb"] else "—", color="blue"),
+        ui.Stat(label="Cron Jobs", value=str(info["cron_count"]), color="blue"),
+    ])
+
+    rows = [
+        {"check": "WordPress core",   "status": f"Update to {info['core_update_version']} available" if info["core_update"] else "Up to date",  "action": "⚠️" if info["core_update"] else "✅"},
+        {"check": "Plugins",          "status": f"{info['plugin_updates']} update(s) available" if info["plugin_updates"] else "All up to date", "action": "⚠️" if info["plugin_updates"] else "✅"},
+        {"check": "Themes",           "status": f"{info['theme_updates']} update(s) available" if info["theme_updates"] else "All up to date",  "action": "⚠️" if info["theme_updates"] else "✅"},
+    ]
+    update_table = ui.DataTable(
+        columns=[
+            ui.DataColumn("check",  "Check",  sortable=False),
+            ui.DataColumn("status", "Status", sortable=False),
+            ui.DataColumn("action", "",       sortable=False),
+        ],
+        rows=rows,
+    )
+
+    tab_bar = ui.Select(
+        options=[{"value": key, "label": label} for label, key in tab_defs],
+        value="server",
+        param_name="active_tab",
+        on_change=ui.Call("__panel__center", view="", site_id=site_id),
+    )
+    ssh_btn = ui.Button("Remove SSH", icon="Terminal", variant="ghost", size="sm",
+                        on_click=ui.Call("remove_ssh", site_id=site_id))
+    health_stats = ui.Stats(columns=4, children=[
+        ui.Stat(label="Reachable", value="Yes" if reachable else "No",
+                color="green" if reachable else "red"),
+        ui.Stat(label="Auth",      value="OK" if reachable else "Failed",
+                color="green" if reachable else "red"),
+        ui.Stat(label="SSL",       value="HTTPS" if ssl_valid else "HTTP",
+                color="green" if ssl_valid else "red"),
+        ui.Stat(label="SSH", value="Connected", color="green", icon="Terminal"),
+    ])
+
+    return ui.Page(title=name, subtitle=base_url, children=[
+        health_stats,
+        ssh_btn,
+        tab_bar,
+        update_stat,
+        server_stats,
+        update_table,
     ])

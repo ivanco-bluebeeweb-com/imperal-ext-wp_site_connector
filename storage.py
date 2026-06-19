@@ -64,6 +64,7 @@ async def delete_credential(ctx, site_id):
 # ── Content cache (posts/pages/media fetched once, tabs switch from cache) ────
 
 CACHE_COLLECTION = "wp_cache"
+SSH_CREDS_COLLECTION = "ssh_creds"
 
 
 async def get_content_cache(ctx, site_id):
@@ -90,6 +91,30 @@ async def set_content_cache(ctx, site_id, posts=None, pages=None, media=None,
         await ctx.store.update(CACHE_COLLECTION, doc.id, data)
     else:
         await ctx.store.create(CACHE_COLLECTION, data)
+
+
+async def get_ssh_cred(ctx, site_id):
+    doc = await _find_doc(ctx, SSH_CREDS_COLLECTION, site_id)
+    return doc.data if doc else None
+
+
+async def set_ssh_cred(ctx, site_id, cred: dict):
+    data = {"site_id": site_id, **cred}
+    doc = await _find_doc(ctx, SSH_CREDS_COLLECTION, site_id)
+    if doc:
+        await ctx.store.update(SSH_CREDS_COLLECTION, doc.id, data)
+    else:
+        await ctx.store.create(SSH_CREDS_COLLECTION, data)
+
+
+async def delete_ssh_cred(ctx, site_id):
+    doc = await _find_doc(ctx, SSH_CREDS_COLLECTION, site_id)
+    if doc:
+        await ctx.store.delete(SSH_CREDS_COLLECTION, doc.id)
+
+
+async def has_ssh(ctx, site_id) -> bool:
+    return await get_ssh_cred(ctx, site_id) is not None
 
 
 async def clear_content_cache(ctx, site_id):
