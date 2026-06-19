@@ -1,92 +1,122 @@
-"""SSH + WP-CLI executor for WP Site Connector.
+"""SSH + WP-CLI executor using the system ssh binary.
 
-Connects to WordPress servers via SSH and runs wp-cli commands to retrieve
-data not available through the REST API (PHP version, update counts, cron
-jobs, database size, etc.).
+Uses asyncio.create_subprocess_exec to run ssh without any third-party
+SSH library — works in any environment that has the ssh binary available.
+Private key is written to a temporary file (chmod 600) and deleted immediately
+after the connection is established.
 """
 import asyncio
 import json
+import os
+import stat
+import tempfile
+import contextlib
 
-try:
-    import asyncssh
-    _ASYNCSSH_AVAILABLE = True
-except ImportError:
-    _ASYNCSSH_AVAILABLE = False
-
-_CMD_TIMEOUT = 30  # seconds per WP-CLI command
+_CMD_TIMEOUT = 30  # seconds per command
 
 
-def _connect_kwargs(cred: dict) -> dict:
-    kwargs = dict(
-        host=cred["host"],
-        port=int(cred.get("port", 22)),
-        username=cred["user"],
-        known_hosts=None,  # skip host-key verification — trade-off for ease of setup
-    )
-    if cred.get("key"):
-        kwargs["client_keys"] = [asyncssh.import_private_key(cred["key"])]
-    elif cred.get("password"):
-        kwargs["password"] = cred["password"]
-    else:
-        raise ValueError("SSH credentials must include either key or password.")
-    return kwargs
-
-
-async def _run(conn, cmd: str, wp_path: str) -> str | None:
-    """Run one WP-CLI command; return stdout or None on failure/timeout."""
-    full = f"wp {cmd} --path={wp_path} --allow-root"
+@contextlib.asynccontextmanager
+async def _key_file(key_content: str):
+    """Write a private key to a secure temp file; delete on exit."""
+    if not key_content:
+        yield None
+        return
+    fd, path = tempfile.mkstemp(suffix=".key")
     try:
-        r = await asyncio.wait_for(conn.run(full, check=False), timeout=_CMD_TIMEOUT)
-        return r.stdout.strip() if r.exit_status == 0 else None
-    except (asyncio.TimeoutError, Exception):
-        return None
+        with os.fdopen(fd, "w") as f:
+            f.write(key_content)
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 600 — ssh refuses world-readable keys
+        yield path
+    finally:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+
+
+def _ssh_cmd(host: str, port: int, user: str, key_path: str | None, remote_cmd: str) -> list[str]:
+    cmd = [
+        "ssh",
+        "-p", str(port),
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", f"ConnectTimeout=15",
+        "-o", "BatchMode=yes",
+    ]
+    if key_path:
+        cmd += ["-i", key_path]
+    cmd += [f"{user}@{host}", remote_cmd]
+    return cmd
+
+
+async def _run(host, port, user, key_path, remote_cmd, timeout=_CMD_TIMEOUT) -> tuple[str | None, str | None]:
+    """Run one remote command. Returns (stdout, error_message)."""
+    proc = await asyncio.create_subprocess_exec(
+        *_ssh_cmd(host, port, user, key_path, remote_cmd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return None, "Command timed out"
+    if proc.returncode == 0:
+        return stdout.decode().strip(), None
+    return None, stderr.decode().strip()[:300]
 
 
 async def test_connection(cred: dict) -> tuple[bool, str]:
-    """Test SSH connection and verify WP-CLI works. Returns (ok, message)."""
-    if not _ASYNCSSH_AVAILABLE:
-        return False, "asyncssh is not installed — add it to pyproject.toml dependencies."
+    """Test SSH + WP-CLI. Returns (ok, message)."""
+    if not cred.get("key"):
+        return False, "Only key-based SSH auth is supported. Please provide an SSH private key."
+
+    host = cred["host"]
+    port = int(cred.get("port", 22))
+    user = cred["user"]
     wp_path = cred.get("wp_path", "/var/www/html")
-    try:
-        async with asyncssh.connect(**_connect_kwargs(cred)) as conn:
-            version = await _run(conn, "core version", wp_path)
-            if version is None:
-                return False, f"WP-CLI not found or WordPress not at {wp_path}"
-            return True, f"WordPress {version}"
-    except asyncssh.PermissionDenied:
-        return False, "SSH permission denied — check username and key/password."
-    except (OSError, ConnectionRefusedError):
-        return False, f"Cannot connect to {cred['host']}:{cred.get('port', 22)}"
-    except Exception as e:
-        return False, str(e)[:200]
+
+    async with _key_file(cred["key"]) as kf:
+        out, err = await _run(host, port, user, kf,
+                              f"wp core version --path={wp_path} --allow-root")
+    if out is None:
+        return False, err or "SSH connection failed"
+    return True, f"WordPress {out}"
 
 
 async def get_server_info(cred: dict) -> dict:
-    """Run WP-CLI commands and return a dict of server/site information."""
-    if not _ASYNCSSH_AVAILABLE:
-        return {"error": "asyncssh not installed"}
-    wp_path = cred.get("wp_path", "/var/www/html")
-    try:
-        async with asyncssh.connect(**_connect_kwargs(cred)) as conn:
-            (wp_ver, php_ver, plugin_upd, theme_upd,
-             core_upd, cron_cnt, db_size) = await asyncio.gather(
-                _run(conn, "core version", wp_path),
-                _run(conn, "eval 'echo PHP_VERSION;'", wp_path),
-                _run(conn, "plugin list --update=available --format=count", wp_path),
-                _run(conn, "theme list --update=available --format=count", wp_path),
-                _run(conn, "core check-update --format=json", wp_path),
-                _run(conn, "cron event list --format=count", wp_path),
-                _run(conn, "db size --size_format=mb", wp_path),
-            )
-    except Exception as e:
-        return {"error": str(e)[:200]}
+    """Run WP-CLI diagnostic commands and return results."""
+    if not cred.get("key"):
+        return {"error": "Only key-based SSH auth is supported."}
 
-    # Parse core update
+    host = cred["host"]
+    port = int(cred.get("port", 22))
+    user = cred["user"]
+    wp_path = cred.get("wp_path", "/var/www/html")
+
+    commands = [
+        f"wp core version --path={wp_path} --allow-root",
+        f"wp eval 'echo PHP_VERSION;' --path={wp_path} --allow-root",
+        f"wp plugin list --update=available --format=count --path={wp_path} --allow-root",
+        f"wp theme list --update=available --format=count --path={wp_path} --allow-root",
+        f"wp core check-update --format=json --path={wp_path} --allow-root",
+        f"wp cron event list --format=count --path={wp_path} --allow-root",
+        f"wp db size --size_format=mb --path={wp_path} --allow-root",
+    ]
+
+    async with _key_file(cred["key"]) as kf:
+        results = await asyncio.gather(*[
+            _run(host, port, user, kf, cmd) for cmd in commands
+        ])
+
+    (wp_r, php_r, plug_r, theme_r, core_r, cron_r, db_r) = results
+
+    # Parse core update JSON
     core_update = False
     core_update_ver = ""
-    if core_upd:
+    if core_r[0]:
         try:
-            updates = json.loads(core_upd)
+            updates = json.loads(core_r[0])
             if updates and isinstance(updates, list):
                 core_update = True
                 core_update_ver = updates[0].get("version", "")
@@ -94,15 +124,16 @@ async def get_server_info(cred: dict) -> dict:
             pass
 
     def _int(val):
-        return int(val) if val and str(val).strip().isdigit() else 0
+        v = (val[0] or "").strip()
+        return int(v) if v.isdigit() else 0
 
     return {
-        "wp_version":         wp_ver or "",
-        "php_version":        php_ver or "",
-        "plugin_updates":     _int(plugin_upd),
-        "theme_updates":      _int(theme_upd),
-        "core_update":        core_update,
+        "wp_version":          (wp_r[0] or "").strip(),
+        "php_version":         (php_r[0] or "").strip(),
+        "plugin_updates":      _int(plug_r),
+        "theme_updates":       _int(theme_r),
+        "core_update":         core_update,
         "core_update_version": core_update_ver,
-        "cron_count":         _int(cron_cnt),
-        "db_size_mb":         db_size or "",
+        "cron_count":          _int(cron_r),
+        "db_size_mb":          (db_r[0] or "").strip(),
     }
