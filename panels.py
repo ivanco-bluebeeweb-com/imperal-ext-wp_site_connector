@@ -42,25 +42,9 @@ def _site_badge_color(r: dict) -> str:
     return "green"
 
 
-def _lamp_html(r: dict) -> ui.Html:
-    """8×8 solid dot with glow via inline HTML."""
-    colors = {
-        "green":  "#22c55e",
-        "yellow": "#f59e0b",
-        "red":    "#ef4444",
-    }
-    c = colors.get(_site_badge_color(r), "#22c55e")
-    content = (
-        f'<html><head><meta charset="utf-8"><style>'
-        f'*{{margin:0;padding:0;box-sizing:border-box}}'
-        f'body{{background:transparent;display:flex;align-items:center;'
-        f'justify-content:center;width:100%;height:100%}}'
-        f'.d{{width:8px;height:8px;border-radius:50%;background:{c};'
-        f'box-shadow:0 0 8px 3px {c}99}}'
-        f'</style></head>'
-        f'<body><div class="d"></div></body></html>'
-    )
-    return ui.Html(content=content, sandbox=False, max_height=0, theme="dark")
+def _lamp(r: dict) -> ui.Badge:
+    """Status dot on the left — Badge is the only avatar-slot node that renders reliably."""
+    return ui.Badge(color=_site_badge_color(r))
 
 
 @ext.panel(
@@ -97,7 +81,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
                 id=r["id"],
                 title=urlparse(r.get("url", "")).netloc or r.get("name", r["id"]),
                 subtitle=_site_subtitle(r),
-                avatar=_lamp_html(r),
+                avatar=_lamp(r),
                 selected=(active_site_id == r["id"]),
                 on_click=ui.Call("__panel__center", view="", site_id=r["id"]),
                 actions=[
