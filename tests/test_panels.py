@@ -171,7 +171,7 @@ async def test_center_shows_detail_when_site_id():
     assert "x.com" in s
     assert "Stats" in s
     assert "Hello" in s
-    assert "Select" in s  # tab selector
+    assert "Posts" in s and "Comments" in s  # grouped nav buttons
 
 
 async def test_center_detail_shows_alert_on_missing_credential():
