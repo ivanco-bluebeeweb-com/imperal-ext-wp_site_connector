@@ -528,31 +528,75 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
 
     items = content_map.get(active_tab)
 
-    # ── Zone 3: Content tabs ──────────────────────────
-    tab_defs = [
-        ("Posts", "posts"), ("Pages", "pages"), ("Media", "media"),
-        ("Comments", "comments"), ("Scheduled", "scheduled"), ("Users", "users"),
+    # ── Zone 3: Grouped content navigation ───────────────
+    def _btn(label, key):
+        return ui.Button(
+            label,
+            variant="secondary" if active_tab == key else "ghost",
+            size="sm",
+            on_click=ui.Call("__panel__center", view="", site_id=site_id, active_tab=key),
+        )
+
+    def _label(text):
+        return ui.Text(text, variant="caption")
+
+    activity_btns = [
+        _btn("Comments", "comments"),
+        _btn("Scheduled", "scheduled"),
+        _btn("Users", "users"),
     ]
     if orders_data is not None:
-        tab_defs.append(("Orders", "orders"))
-    for slug, meta in cpt_meta.items():
-        tab_defs.append((meta["name"], f"cpt:{slug}"))
-    for slug, meta in tax_meta.items():
-        tab_defs.append((meta["name"], f"tax:{slug}"))
+        activity_btns.append(_btn("Orders", "orders"))
 
-    tab_bar = ui.Select(
-        options=[{"value": key, "label": label} for label, key in tab_defs],
-        value=active_tab,
-        param_name="active_tab",
-        on_change=ui.Call("__panel__center", view="", site_id=site_id),
-    )
+    nav_rows = [
+        ui.Stack(direction="h", align="center", gap=3, children=[
+            _label("Standard"),
+            ui.Stack(direction="h", gap=1, wrap=True, children=[
+                _btn("Posts", "posts"), _btn("Pages", "pages"), _btn("Media", "media"),
+            ]),
+        ]),
+        ui.Stack(direction="h", align="center", gap=3, children=[
+            _label("Activity"),
+            ui.Stack(direction="h", gap=1, wrap=True, children=activity_btns),
+        ]),
+    ]
+
+    if cpt_meta:
+        cpt_value = active_tab if active_tab.startswith("cpt:") else ""
+        nav_rows.append(ui.Stack(direction="h", align="center", gap=3, children=[
+            _label("Custom Types"),
+            ui.Select(
+                options=[{"value": f"cpt:{s}", "label": m["name"]}
+                         for s, m in cpt_meta.items()],
+                value=cpt_value,
+                placeholder="Select type…",
+                param_name="active_tab",
+                on_change=ui.Call("__panel__center", view="", site_id=site_id),
+            ),
+        ]))
+
+    if tax_meta:
+        tax_value = active_tab if active_tab.startswith("tax:") else ""
+        nav_rows.append(ui.Stack(direction="h", align="center", gap=3, children=[
+            _label("Taxonomies"),
+            ui.Select(
+                options=[{"value": f"tax:{s}", "label": m["name"]}
+                         for s, m in tax_meta.items()],
+                value=tax_value,
+                placeholder="Select taxonomy…",
+                param_name="active_tab",
+                on_change=ui.Call("__panel__center", view="", site_id=site_id),
+            ),
+        ]))
+
+    content_nav = ui.Stack(gap=2, sticky=True, children=nav_rows)
 
     # ── Assemble page ─────────────────────────────────
     page_children = [
         health_row,
         *server_section_children,
         ui.Divider(label="Content"),
-        tab_bar,
+        content_nav,
         _render_content_table(items, active_tab),
     ]
 
