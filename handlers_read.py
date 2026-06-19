@@ -377,6 +377,7 @@ async def list_custom_posts(ctx, params: ListCustomPostsParams) -> ActionResult:
 )
 async def get_server_info(ctx, params: SiteIdParams) -> ActionResult:
     """Run WP-CLI commands via SSH and return server/site diagnostics."""
+    record = await storage.get_site_record(ctx, params.site_id) or {}
     cred = await storage.get_ssh_cred(ctx, params.site_id)
     if not cred:
         return ActionResult.error(
