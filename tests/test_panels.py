@@ -39,7 +39,6 @@ async def test_sidebar_connect_button_at_top():
     ctx = MockContext()
     node = await panels.sidebar(ctx)
     s = str(node)
-    # Button should appear before Divider in the serialized output
     assert s.index("Connect Site") < s.index("Divider")
 
 
@@ -47,6 +46,24 @@ async def test_sidebar_divider_present():
     ctx = MockContext()
     node = await panels.sidebar(ctx)
     assert "Divider" in str(node)
+
+
+async def test_sidebar_connect_button_calls_center_with_connect_view():
+    ctx = MockContext()
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    assert "__panel__center" in s
+    assert "connect" in s
+
+
+async def test_sidebar_site_click_calls_center_with_site_id():
+    ctx = await _ctx_with_sites(
+        {"id": "x-com", "name": "X", "url": "https://x.com", "status": "connected"},
+    )
+    node = await panels.sidebar(ctx)
+    s = str(node)
+    assert "__panel__center" in s
+    assert "x-com" in s
 
 
 async def test_sidebar_auto_action_set_when_sites_exist():
@@ -95,8 +112,7 @@ async def test_sidebar_connected_badge_green():
         {"id": "x-com", "name": "X", "url": "https://x.com", "status": "connected"},
     )
     node = await panels.sidebar(ctx)
-    s = str(node)
-    assert "green" in s
+    assert "green" in str(node)
 
 
 async def test_sidebar_error_badge_red():
@@ -104,27 +120,42 @@ async def test_sidebar_error_badge_red():
         {"id": "x-com", "name": "X", "url": "https://x.com", "status": "error"},
     )
     node = await panels.sidebar(ctx)
-    s = str(node)
-    assert "red" in s
+    assert "red" in str(node)
 
 
-# ── detail ────────────────────────────────────────────────────────────────────
+# ── center panel ──────────────────────────────────────────────────────────────
 
-async def test_detail_empty_when_no_site_id():
+async def test_center_empty_when_no_args():
     ctx = MockContext()
-    node = await panels.detail(ctx, site_id="")
+    node = await panels.center(ctx)
     assert node is not None
     assert "Empty" in str(node) or "Select" in str(node)
 
 
-async def test_detail_empty_when_site_not_found():
+async def test_center_shows_connect_form_when_view_connect():
     ctx = MockContext()
-    ctx.secrets = MockSecretStore({})
-    node = await panels.detail(ctx, site_id="nonexistent")
-    assert node is not None
+    node = await panels.center(ctx, view="connect", site_id="")
+    s = str(node)
+    assert "app_password" in s and "'type': 'password'" in s
 
 
-async def test_detail_renders_site_data():
+async def test_center_connect_form_has_cancel_pointing_to_center():
+    ctx = MockContext()
+    node = await panels.center(ctx, view="connect", site_id="")
+    s = str(node)
+    assert "Cancel" in s
+    assert "__panel__center" in s
+
+
+async def test_center_connect_form_has_url_and_username():
+    ctx = MockContext()
+    node = await panels.center(ctx, view="connect", site_id="")
+    s = str(node)
+    assert "url" in s
+    assert "username" in s
+
+
+async def test_center_shows_detail_when_site_id():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
     await storage.save_site_record(ctx, {"id": "x-com", "name": "X",
@@ -137,7 +168,7 @@ async def test_detail_renders_site_data():
                         "date": "2026-06-01T00:00:00"}], 200)
     ctx.http.mock_get("https://x.com/wp-json/wp/v2/pages", [], 200)
     ctx.http.mock_get("https://x.com/wp-json/wp/v2/media", [], 200)
-    node = await panels.detail(ctx, site_id="x-com")
+    node = await panels.center(ctx, view="", site_id="x-com")
     s = str(node)
     assert "x.com" in s
     assert "Stats" in s
@@ -145,38 +176,20 @@ async def test_detail_renders_site_data():
     assert "Hello" in s
 
 
-async def test_detail_shows_alert_on_missing_credential():
+async def test_center_detail_shows_alert_on_missing_credential():
     ctx = MockContext()
     ctx.secrets = MockSecretStore({})
     await storage.save_site_record(ctx, {"id": "x-com", "name": "X",
                                          "url": "https://x.com", "username": "admin",
                                          "status": "connected"})
-    # credential NOT set
-    node = await panels.detail(ctx, site_id="x-com")
+    node = await panels.center(ctx, view="", site_id="x-com")
     s = str(node)
-    assert "Alert" in s or "Credential" in s or "reconnect" in s.lower()
+    assert "Alert" in s or "credential" in s.lower()
 
 
-# ── connect_form ──────────────────────────────────────────────────────────────
-
-async def test_connect_form_has_password_field():
+async def test_center_connect_view_overrides_site_id():
+    """view=connect takes priority even if site_id is set (accumulated params scenario)."""
     ctx = MockContext()
-    node = await panels.connect_form(ctx)
+    node = await panels.center(ctx, view="connect", site_id="x-com")
     s = str(node)
-    assert "app_password" in s and "'type': 'password'" in s
-
-
-async def test_connect_form_has_cancel_button():
-    ctx = MockContext()
-    node = await panels.connect_form(ctx)
-    s = str(node)
-    assert "Cancel" in s
-    assert "__panel__detail" in s
-
-
-async def test_connect_form_has_url_and_username_fields():
-    ctx = MockContext()
-    node = await panels.connect_form(ctx)
-    s = str(node)
-    assert "url" in s
-    assert "username" in s
+    assert "app_password" in s

@@ -27,7 +27,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
         icon="Plus",
         variant="primary",
         full_width=True,
-        on_click=ui.Call("__panel__connect_form"),
+        on_click=ui.Call("__panel__center", view="connect", site_id=""),
     )
 
     if not rows:
@@ -40,7 +40,7 @@ async def sidebar(ctx, active_site_id="", **kwargs):
                 subtitle=r.get("status", "connected"),
                 badge=ui.Badge(color="green" if r.get("status") == "connected" else "red"),
                 selected=(active_site_id == r["id"]),
-                on_click=ui.Call("__panel__detail", site_id=r["id"]),
+                on_click=ui.Call("__panel__center", view="", site_id=r["id"]),
                 actions=[
                     {"icon": "RefreshCw",
                      "on_click": ui.Call("refresh_site", site_id=r["id"])},
@@ -57,12 +57,62 @@ async def sidebar(ctx, active_site_id="", **kwargs):
 
     # Auto-open the first site on first load. Guard: only when no site is active.
     if not active_site_id and rows:
-        root.props["auto_action"] = ui.Call("__panel__detail", site_id=rows[0]["id"])
+        root.props["auto_action"] = ui.Call(
+            "__panel__center", view="", site_id=rows[0]["id"]
+        )
 
     return root
 
 
-# ── Site detail (center overlay) ──────────────────────────────────────────────
+# ── Single center panel — branches on `view` kwarg ────────────────────────────
+#
+# view=""        + site_id=""   → empty state (select a site)
+# view=""        + site_id=X   → site detail dashboard
+# view="connect" + site_id=""  → connect form
+#
+# All ui.Call to this panel pass BOTH kwargs explicitly to override accumulated state.
+
+@ext.panel("center", slot="center", center_overlay=True, title="WP Site Connector")
+async def center(ctx, view="", site_id="", **kwargs):
+    """Single center overlay: branches between site detail and connect form."""
+    if view == "connect":
+        return _render_connect_form()
+    if site_id:
+        return await _render_detail(ctx, site_id)
+    return ui.Empty(message="Select a site from the list to view its dashboard.")
+
+
+# ── Connect form ──────────────────────────────────────────────────────────────
+
+def _field(label, help_text, input_node):
+    return ui.Stack(children=[
+        ui.Tooltip(content=help_text, children=ui.Text(label)),
+        input_node,
+    ])
+
+
+def _render_connect_form():
+    return ui.Stack(children=[
+        ui.Form(action="connect_site", submit_label="Connect", children=[
+            _field("Site URL",
+                   "The site's full address, e.g. https://example.com",
+                   ui.Input(param_name="url", placeholder="https://example.com")),
+            _field("Username",
+                   "The WordPress username that created the Application Password",
+                   ui.Input(param_name="username", placeholder="admin")),
+            _field("Application Password",
+                   "Create this under Users → Profile → Application Passwords in WordPress",
+                   ui.Password(param_name="app_password")),
+        ]),
+        ui.Button(
+            "Cancel",
+            variant="ghost",
+            on_click=ui.Call("__panel__center", view="", site_id=""),
+        ),
+    ], gap=4)
+
+
+# ── Site detail ───────────────────────────────────────────────────────────────
 
 def _items_or_none(r):
     if r is None or r.status_code != 200 or not isinstance(r.body, list):
@@ -102,12 +152,7 @@ def _content_tab(label, items):
     return {"label": label, "content": ui.DataTable(columns=columns, rows=rows)}
 
 
-@ext.panel("detail", slot="center", center_overlay=True, title="Site")
-async def detail(ctx, site_id="", **kwargs):
-    """Center overlay: site dashboard — health status, content counts, and content tabs."""
-    if not site_id:
-        return ui.Empty(message="Select a site from the list to view its dashboard.")
-
+async def _render_detail(ctx, site_id):
     record = await storage.get_site_record(ctx, site_id) or {}
     if not record:
         return ui.Empty(message="Site not found — it may have been removed.")
@@ -115,10 +160,7 @@ async def detail(ctx, site_id="", **kwargs):
     base_url = record.get("url", "")
     pw = await storage.get_credential(ctx, site_id)
     if not base_url or not pw:
-        return ui.Alert(
-            message="Credential missing — reconnect this site.",
-            type="error",
-        )
+        return ui.Alert(message="Credential missing — reconnect this site.", type="error")
 
     username = record.get("username", "")
     name = urlparse(base_url).netloc or record.get("name", site_id)
@@ -167,35 +209,3 @@ async def detail(ctx, site_id="", **kwargs):
         count_stats,
         ui.Tabs(tabs=tabs),
     ])
-
-
-# ── Connect form (center overlay) ─────────────────────────────────────────────
-
-def _field(label, help_text, input_node):
-    return ui.Stack(children=[
-        ui.Tooltip(content=help_text, children=ui.Text(label)),
-        input_node,
-    ])
-
-
-@ext.panel("connect_form", slot="center", title="Connect a WordPress site")
-async def connect_form(ctx, **kwargs):
-    """Center overlay: connection form. Captures URL + username + Application Password."""
-    return ui.Stack(children=[
-        ui.Form(action="connect_site", submit_label="Connect", children=[
-            _field("Site URL",
-                   "The site's full address, e.g. https://example.com",
-                   ui.Input(param_name="url", placeholder="https://example.com")),
-            _field("Username",
-                   "The WordPress username that created the Application Password",
-                   ui.Input(param_name="username", placeholder="admin")),
-            _field("Application Password",
-                   "Create this under Users → Profile → Application Passwords in WordPress",
-                   ui.Password(param_name="app_password")),
-        ]),
-        ui.Button(
-            "Cancel",
-            variant="ghost",
-            on_click=ui.Call("__panel__detail"),
-        ),
-    ], gap=4)

@@ -67,4 +67,4 @@ async def forget_site(ctx, params: SiteIdParams) -> ActionResult:
                 url=record.get("url", ""), username=record.get("username", ""), status="disconnected")
     return ActionResult.success(
         site, summary=f"Disconnected {record.get('name', params.site_id)}",
-        refresh_panels=["sidebar", "detail"])
+        refresh_panels=["sidebar", "center"])
