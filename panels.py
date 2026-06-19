@@ -249,7 +249,17 @@ async def _render_detail(ctx, site_id, active_tab="posts"):
 
     reachable = record.get("status") == "connected"
     ssl_valid = base_url.startswith("https://")
-    has_ssh   = bool(record.get("ssh_host"))
+
+    # has_ssh: prefer site record (fast), fall back to creds collection (backward compat)
+    has_ssh = bool(record.get("ssh_host"))
+    if not has_ssh:
+        ssh_cred = await storage.get_ssh_cred(ctx, site_id)
+        if ssh_cred:
+            has_ssh = True
+            # Migrate: write ssh_host into record so future renders are fast
+            await storage.save_site_record(
+                ctx, {**record, "ssh_host": ssh_cred.get("host", "legacy")}
+            )
 
     # ── Zone 1: Health row ────────────────────────────
     ssh_btn = ui.Button(
